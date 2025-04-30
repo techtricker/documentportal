@@ -105,7 +105,7 @@ def get_db():
 
 @app.post("/login", response_model=TokenResponse)
 def login(request: LoginRequest, db: Session = Depends(get_db)):
-    user = db.query(models.PortalUser).filter(models.PortalUser.portal_user_name == request.portal_user_name).first()
+    user = db.query(PortalUser).filter(PortalUser.portal_user_name == request.portal_user_name).first()
     if not user or not verify_password(request.password, user.password):
         raise HTTPException(status_code=401, detail="Invalid username or password")
 
