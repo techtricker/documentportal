@@ -156,7 +156,7 @@ def verify_secret(secret_code: str, db: Session = Depends(get_db)):
     assignment = db.query(UserAssignment).filter_by(secret_code=secret_code).first()
     if assignment and assignment.secret_code == secret_code:
         user = db.query(User).filter_by(user_id=assignment.user_id).first()
-        access_token = create_access_token(data={"sub": user.name})
+        access_token = create_access_token(data={"name": user.name,"user_id":user.user_id,"assignment":assignment.user_assignment_id})
         return {"status": "verified","access_token":access_token}
     raise HTTPException(status_code=403, detail="Invalid secret code")
 
