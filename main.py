@@ -8,12 +8,7 @@ from sqlalchemy.orm import sessionmaker, relationship, declarative_base, Session
 from datetime import datetime
 from io import BytesIO
 import uvicorn
-
-DATABASE_URL = "mysql+pymysql://username:password@localhost/documentportal"
-
-engine = create_engine(DATABASE_URL)
-SessionLocal = sessionmaker(bind=engine)
-Base = declarative_base()
+from .database import SessionLocal
 
 app = FastAPI()
 
