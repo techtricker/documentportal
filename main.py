@@ -14,6 +14,19 @@ from auth import verify_password, create_access_token, get_password_hash
 
 app = FastAPI()
 
+# Add this CORS configuration
+origins = [
+    "http://localhost:3000",  # React app
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,    # or ["*"] for all origins (use only for testing)
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 class LoginRequest(BaseModel):
     portal_user_name: str
     password: str
