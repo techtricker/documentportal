@@ -3,6 +3,12 @@ from sqlalchemy.orm import relationship, sessionmaker, declarative_base
 from datetime import datetime
 from .database import Base
 
+class PortalUser(Base):
+    __tablename__ = "portal_user"
+    portal_user_id = Column(Integer, primary_key=True, index=True)
+    portal_user_name = Column(String(255), unique=True, nullable=False)
+    password = Column(String(255), nullable=False)
+    
 # PanelMaster Model
 class PanelMaster(Base):
     __tablename__ = "panel_master"
