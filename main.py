@@ -79,7 +79,7 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
 
 @app.get("/panel-files/{panel_id}", response_model=List[FileMetaResponse])
 def get_files_by_panel(panel_id: int, db: Session = Depends(get_db)):
-    files = db.query(FileMeta).filter(FileMeta.panel_id == panel_id).all()
+    files = db.query(FileMeta.file_meta_id, FileMeta.panel_id, FileMeta.file_name).filter(FileMeta.panel_id == panel_id).all()
     if not files:
         raise HTTPException(status_code=404, detail="No files found for this panel")
     return files
