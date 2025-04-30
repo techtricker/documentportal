@@ -45,7 +45,7 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
     
 class FileInfo(BaseModel):
-    file_id: int
+    file_meta_id: int
     file_name: str
 
 class FilesDetail(BaseModel):
