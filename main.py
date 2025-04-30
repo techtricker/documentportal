@@ -10,7 +10,7 @@ from database import SessionLocal, Base, engine
 from pydantic import BaseModel
 from fastapi.security import OAuth2PasswordRequestForm
 import models
-import auth
+from auth import verify_password, create_access_token, get_password_hash
 
 app = FastAPI()
 
