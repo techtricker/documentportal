@@ -12,6 +12,12 @@ app = FastAPI()
 
 # ------------------ MODELS ------------------
 
+class PortalUser(Base):
+    __tablename__ = "portal_user"
+    portal_user_id = Column(Integer, primary_key=True, index=True)
+    portal_user_name = Column(String(255), unique=True, nullable=False)
+    password = Column(String(255), nullable=False)
+    
 class PanelMaster(Base):
     __tablename__ = "panel_master"
     panel_id = Column(Integer, primary_key=True, index=True)
