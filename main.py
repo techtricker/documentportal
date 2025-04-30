@@ -15,6 +15,7 @@ app = FastAPI()
 class PanelMaster(Base):
     __tablename__ = "panel_master"
     panel_id = Column(Integer, primary_key=True, index=True)
+    panel_name = Column(String)
     file_meta = relationship("FileMeta", back_populates="panel")
 
 class FileMeta(Base):
@@ -28,6 +29,9 @@ class FileMeta(Base):
 class User(Base):
     __tablename__ = "users"
     user_id = Column(Integer, primary_key=True, index=True)
+    name = Column(String)
+    email_id = Column(String)
+    phone_number = Column(String)
 
 class UserAssignment(Base):
     __tablename__ = "user_assignment"
