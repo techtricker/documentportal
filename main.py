@@ -15,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from typing import List
 import secrets
 import string
+import qrcode
 
 app = FastAPI()
 
@@ -79,13 +80,17 @@ class UserAssignmentResponse(BaseModel):
 
 # ------------------ Secret Code Generation ------------------
 def generate_secret_code(length: int = 8) -> str:
-    """Generates a random secret code with a length between 6 and 10 characters."""
-    if length < 6 or length > 10:
-        raise ValueError("Length must be between 6 and 10 characters.")
-    
-    alphabet = string.ascii_letters + string.digits  # Uppercase, lowercase, and digits
-    secret_code = ''.join(secrets.choice(alphabet) for _ in range(length))
-    return secret_code
+    alphabet = string.ascii_letters + string.digits
+    return ''.join(secrets.choice(alphabet) for _ in range(length))
+
+def generate_qr_code_bytes(url: str) -> bytes:
+    qr = qrcode.QRCode(version=1, box_size=10, border=4)
+    qr.add_data(url)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+    byte_stream = BytesIO()
+    img.save(byte_stream, format='PNG')
+    return byte_stream.getvalue()
     
 # ------------------ DEPENDENCY ------------------
 
@@ -164,6 +169,9 @@ def create_user(user: UserCreate, db: Session = Depends(get_db)):
 @app.post("/user-assignment")
 def user_assignment(user: UserAssignmentCreate, db: Session = Depends(get_db)):
     secret_code = generate_secret_code()
+    # Construct file URL (you may want to use a more specific logic in production)
+    file_url = f"http://localhost:8000/files/{user.panel_id}?"
+    qr_code_bytes = generate_qr_code_bytes(file_url)
     db_user = User(user_id=user.user_id,panel_id=user.panel_id,secret_code=secret_code)
     db.add(db_user)
     db.commit()
