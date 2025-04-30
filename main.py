@@ -63,7 +63,6 @@ class FileMetaResponse(BaseModel):
 class UserAssignmentCreate(BaseModel):
     user_id: int
     panel_id: int
-    secret_code: str
 
     class Config:
         orm_mode = True
