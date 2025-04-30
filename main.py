@@ -6,7 +6,7 @@ from sqlalchemy.orm import sessionmaker, relationship, declarative_base, Session
 from datetime import datetime
 from io import BytesIO
 import uvicorn
-from database import SessionLocal, Base
+from database import SessionLocal, Base, engine
 
 app = FastAPI()
 
