@@ -18,3 +18,13 @@ def verify_password(plain_password, hashed_password):
 
 def get_password_hash(password):
     return bcrypt.hash(password)
+
+def get_assignment_id_from_token(token: str):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        assignment_id = payload.get("assignment")  
+        if assignment_id is None:
+            raise ValueError("Invalid token: no user ID")
+        return assignment_id
+    except JWTError:
+        raise ValueError("Invalid token")
