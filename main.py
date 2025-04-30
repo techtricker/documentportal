@@ -141,6 +141,7 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
 @app.post("/get-assigned-files", response_model=FilesDetail)
 def login(request: GetFilesRequest, db: Session = Depends(get_db)):
     assignment_id = get_assignment_id_from_token(request.access_token)
+    print(assignment_id)
     assignment = db.query(UserAssignment).filter(UserAssignment.user_assignment_id == assignment_id).first()
     if not assignment:
         raise HTTPException(status_code=401, detail="Expired or Invalid access")
