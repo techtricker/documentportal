@@ -48,6 +48,15 @@ class UserCreate(BaseModel):
     email_id: str
     phone_number: str
 
+class FileMetaResponse(BaseModel):
+    file_id: int
+    panel_id: int
+    file_name: str
+    uploaded_on: datetime
+
+    class Config:
+        orm_mode = True
+
 # ------------------ DEPENDENCY ------------------
 
 def get_db():
@@ -68,6 +77,13 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
     access_token = create_access_token(data={"sub": user.portal_user_name})
     return {"access_token": access_token}
 
+@app.get("/panel-files/{panel_id}", response_model=List[FileMetaResponse])
+def get_files_by_panel(panel_id: int, db: Session = Depends(get_db)):
+    files = db.query(FileMeta).filter(FileMeta.panel_id == panel_id).all()
+    if not files:
+        raise HTTPException(status_code=404, detail="No files found for this panel")
+    return files
+    
 @app.post("/upload-file/")
 def upload_file(panel_id: int = Form(...), file: UploadFile = File(...), db: Session = Depends(get_db)):
     contents = file.file.read()
