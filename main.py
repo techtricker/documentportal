@@ -94,7 +94,7 @@ def verify_secret(assignment_id: int, secret_code: str = Form(...), db: Session 
 
 @app.post("/panels")
 def create_panel(panel: PanelCreate, db: Session = Depends(get_db)):
-    db_panel = PanelMaster(panel_id=panel.panel_id)
+    db_panel = PanelMaster(panel_name=panel.panel_name, description=panel.description)
     db.add(db_panel)
     db.commit()
     db.refresh(db_panel)
@@ -106,7 +106,7 @@ def read_panels(db: Session = Depends(get_db)):
 
 @app.post("/users")
 def create_user(user: UserCreate, db: Session = Depends(get_db)):
-    db_user = User(user_id=user.user_id)
+    db_user = User(name=user.name,email_id=user.email_id,phone_number=user.phone_number)
     db.add(db_user)
     db.commit()
     db.refresh(db_user)
