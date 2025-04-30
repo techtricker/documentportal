@@ -166,6 +166,16 @@ def get_files_by_panel(panel_id: int, db: Session = Depends(get_db)):
     if not files:
         raise HTTPException(status_code=404, detail="No files found for this panel")
     return files
+
+@app.get("/view-file/{file_meta_id}")
+def view_file(file_meta_id: int, db: Session = Depends(get_db)):
+    file = db.query(FileMeta).filter(FileMeta.file_meta_id == file_id).first()
+    if not file:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    return StreamingResponse(BytesIO(file.file_data), media_type="application/pdf", headers={
+        "Content-Disposition": f"inline; filename={file.file_name}"
+    })
     
 @app.post("/upload-file/")
 def upload_file(panel_id: int = Form(...), file: UploadFile = File(...), db: Session = Depends(get_db)):
