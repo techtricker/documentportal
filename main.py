@@ -1,5 +1,3 @@
-// FastAPI Implementation of Document Portal API
-
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
