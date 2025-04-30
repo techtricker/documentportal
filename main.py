@@ -151,11 +151,13 @@ def view_file(assignment_id: int, secret_code: str, db: Session = Depends(get_db
 
     return StreamingResponse(BytesIO(file_meta.file_data), media_type="application/pdf", headers={"Content-Disposition": f"inline; filename={file_meta.file_name}"})
 
-@app.post("/verify-secret/{assignment_id}")
-def verify_secret(assignment_id: int, secret_code: str = Form(...), db: Session = Depends(get_db)):
-    assignment = db.query(UserAssignment).filter_by(user_assignment_id=assignment_id).first()
+@app.post("/verify-secret/{secret_code}")
+def verify_secret(secret_code: str, db: Session = Depends(get_db)):
+    assignment = db.query(UserAssignment).filter_by(secret_code=secret_code).first()
     if assignment and assignment.secret_code == secret_code:
-        return {"status": "verified"}
+        user = db.query(User).filter_by(user_id=assignment.user_id).first()
+        access_token = create_access_token(data={"sub": user.name})
+        return {"status": "verified","access_token":access_token}
     raise HTTPException(status_code=403, detail="Invalid secret code")
 
 @app.post("/panels")
