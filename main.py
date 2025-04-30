@@ -40,10 +40,13 @@ class TokenResponse(BaseModel):
 # ------------------ SCHEMAS ------------------
 
 class PanelCreate(BaseModel):
-    panel_id: int
+    panel_name: str
+    description: str
 
 class UserCreate(BaseModel):
-    user_id: int
+    name: str
+    email_id: str
+    phone_number: str
 
 # ------------------ DEPENDENCY ------------------
 
