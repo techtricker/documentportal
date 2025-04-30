@@ -169,7 +169,7 @@ def get_files_by_panel(panel_id: int, db: Session = Depends(get_db)):
 
 @app.get("/view-file/{file_meta_id}")
 def view_file(file_meta_id: int, db: Session = Depends(get_db)):
-    file = db.query(FileMeta).filter(FileMeta.file_meta_id == file_id).first()
+    file = db.query(FileMeta).filter(FileMeta.file_meta_id == file_meta_id).first()
     if not file:
         raise HTTPException(status_code=404, detail="File not found")
 
