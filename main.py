@@ -166,16 +166,30 @@ def create_user(user: UserCreate, db: Session = Depends(get_db)):
     return db_user
 
 @app.post("/user-assignment")
-def user_assignment(user: UserAssignmentCreate, db: Session = Depends(get_db)):
+def create_user_assignment(
+    user_id: int = Form(...),
+    panel_id: int = Form(...),
+    db: Session = Depends(get_db)
+):
     secret_code = generate_secret_code()
-    # Construct file URL (you may want to use a more specific logic in production)
-    file_url = f"http://localhost:8000/files/{user.panel_id}?"
+    file_url = f"http://localhost:8000/files/{panel_id}?code={secret_code}"
     qr_code_bytes = generate_qr_code_bytes(file_url)
-    db_user = User(user_id=user.user_id,panel_id=user.panel_id,secret_code=secret_code)
-    db.add(db_user)
+
+    assignment = UserAssignment(
+        user_id=user_id,
+        panel_id=panel_id,
+        secret_code=secret_code,
+        qr_code=qr_code_bytes,
+    )
+
+    db.add(assignment)
     db.commit()
-    db.refresh(db_user)
-    return db_user
+    db.refresh(assignment)
+
+    return {
+        "user_assignment_id": assignment.user_assignment_id,
+        "secret_code": assignment.secret_code
+    }
 
 @app.get("/users")
 def read_users(db: Session = Depends(get_db)):
