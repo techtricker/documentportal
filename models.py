@@ -1,7 +1,7 @@
 from sqlalchemy import create_engine, Column, Integer, String, ForeignKey, LargeBinary, DateTime
 from sqlalchemy.orm import relationship, sessionmaker, declarative_base
 from datetime import datetime
-from .database import Base
+from database import Base
 
 class PortalUser(Base):
     __tablename__ = "portal_user"
