@@ -9,6 +9,7 @@ import uvicorn
 from database import SessionLocal, Base, engine
 from pydantic import BaseModel
 from fastapi.security import OAuth2PasswordRequestForm
+import models
 
 app = FastAPI()
 
