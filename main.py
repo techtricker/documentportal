@@ -229,7 +229,10 @@ def create_user(user: UserCreate, db: Session = Depends(get_db)):
 @app.post("/user-assignment")
 def create_user_assignment(payload: UserAssignmentCreate, db: Session = Depends(get_db)):
     secret_code = generate_secret_code()
-    file_url = f"http://localhost:8000/files/{payload.panel_id}?code={secret_code}"
+    # Proper base64 encoding of the secret code
+    encoded_bytes = base64.b64encode(secret_code.encode('utf-8'))
+    encoded_str = encoded_bytes.decode('utf-8')
+    file_url = f"http://localhost:3000/#/verify-secret-code/{encoded_str}"
     qr_code_bytes = generate_qr_code_bytes(file_url)
 
     assignment = UserAssignment(
