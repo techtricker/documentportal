@@ -7,8 +7,18 @@ from datetime import datetime
 from io import BytesIO
 import uvicorn
 from database import SessionLocal, Base, engine
+from pydantic import BaseModel
+from fastapi.security import OAuth2PasswordRequestForm
 
 app = FastAPI()
+
+class LoginRequest(BaseModel):
+    portal_user_name: str
+    password: str
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
 
 # ------------------ MODELS ------------------
 
@@ -74,6 +84,15 @@ def get_db():
         db.close()
 
 # ------------------ ENDPOINTS ------------------
+
+@app.post("/login", response_model=TokenResponse)
+def login(request: LoginRequest, db: Session = Depends(get_db)):
+    user = db.query(models.PortalUser).filter(models.PortalUser.portal_user_name == request.portal_user_name).first()
+    if not user or not verify_password(request.password, user.password):
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+
+    access_token = create_access_token(data={"sub": user.portal_user_name})
+    return {"access_token": access_token}
 
 @app.post("/upload-file/")
 def upload_file(panel_id: int = Form(...), file: UploadFile = File(...), db: Session = Depends(get_db)):
