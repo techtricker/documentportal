@@ -185,7 +185,7 @@ def upload_file(panel_id: int = Form(...), file: UploadFile = File(...), db: Ses
     db.commit()
     return {"message": "File uploaded"}
 
-@app.get("/view-file/{assignment_id}")
+@app.get("/view-file1/{assignment_id}")
 def view_file(assignment_id: int, secret_code: str, db: Session = Depends(get_db)):
     assignment = db.query(UserAssignment).filter_by(user_assignment_id=assignment_id).first()
     if not assignment or assignment.secret_code != secret_code:
