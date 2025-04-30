@@ -3,35 +3,37 @@ from sqlalchemy.orm import relationship, sessionmaker, declarative_base
 from datetime import datetime
 from database import SessionLocal, Base, engine
 
+
+# ------------------ MODELS ------------------
+
 class PortalUser(Base):
     __tablename__ = "portal_user"
     portal_user_id = Column(Integer, primary_key=True, index=True)
     portal_user_name = Column(String(255), unique=True, nullable=False)
     password = Column(String(255), nullable=False)
     
-# PanelMaster Model
 class PanelMaster(Base):
     __tablename__ = "panel_master"
     panel_id = Column(Integer, primary_key=True, index=True)
+    panel_name = Column(String)
+    description = Column(String)
     file_meta = relationship("FileMeta", back_populates="panel")
 
-# FileMeta Model
 class FileMeta(Base):
     __tablename__ = "file_meta"
     file_meta_id = Column(Integer, primary_key=True, index=True)
     panel_id = Column(Integer, ForeignKey("panel_master.panel_id"))
     file_name = Column(String)
     file_data = Column(LargeBinary)
-
-    # Relationship to PanelMaster
     panel = relationship("PanelMaster", back_populates="file_meta")
 
-# User Model
 class User(Base):
     __tablename__ = "users"
     user_id = Column(Integer, primary_key=True, index=True)
+    name = Column(String)
+    email_id = Column(String)
+    phone_number = Column(String)
 
-# UserAssignment Model
 class UserAssignment(Base):
     __tablename__ = "user_assignment"
     user_assignment_id = Column(Integer, primary_key=True, index=True)
@@ -40,12 +42,10 @@ class UserAssignment(Base):
     secret_code = Column(String)
     qr_code = Column(LargeBinary)
 
-# UserScanLog Model
 class UserScanLog(Base):
     __tablename__ = "user_scan_log"
     log_id = Column(Integer, primary_key=True, index=True)
     user_assignment_id = Column(Integer, ForeignKey("user_assignment.user_assignment_id"))
     scan_datetime = Column(DateTime, default=datetime.utcnow)
 
-# Create tables in the database
 Base.metadata.create_all(bind=engine)
