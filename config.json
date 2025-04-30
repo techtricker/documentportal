@@ -1,0 +1,16 @@
+{
+    "database": 
+        {
+            "server"      : "qrcode-app.cdc2auaa0ube.ap-south-1.rds.amazonaws.com",
+			"database"    : "qrcode_app",
+			"user"        : "admin",
+			"password"    : "Mascot_2025"
+        },
+    "localdatabase": 
+        {
+            "server"      : "qrcode-app.cdc2auaa0ube.ap-south-1.rds.amazonaws.com",
+			"database"    : "qrcode_app",
+			"user"        : "admin",
+			"password"    : "Mascot_2025"
+        }
+}

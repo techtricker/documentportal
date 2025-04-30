@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+sqlalchemy
+pymysql
+qrcode[pil]
+python-multipart 
+aiofiles
