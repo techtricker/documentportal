@@ -12,6 +12,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from models import PanelMaster, PortalUser, FileMeta, User, UserAssignment, UserScanLog
 from auth import verify_password, create_access_token, get_password_hash
 from fastapi.middleware.cors import CORSMiddleware
+from typing import List
 
 app = FastAPI()
 
