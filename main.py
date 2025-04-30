@@ -16,6 +16,7 @@ from typing import List
 import secrets
 import string
 import qrcode
+import base64
 
 app = FastAPI()
 
@@ -73,6 +74,18 @@ class UserAssignmentResponse(BaseModel):
     panel_id: int
     secret_code: str
     qr_code: bytes
+
+    class Config:
+        orm_mode = True
+
+class UserDetails(BaseModel):
+    user_id: int
+    user_name: str
+    email_id: str
+    panel_id: int
+    panel_name: str
+    secret_code: str
+    qr_code_base64: str  # base64 string for frontend
 
     class Config:
         orm_mode = True
@@ -190,6 +203,30 @@ def create_user_assignment(payload: UserAssignmentCreate, db: Session = Depends(
 @app.get("/users")
 def read_users(db: Session = Depends(get_db)):
     return db.query(User).all()
+
+@app.get("/user-details", response_model=List[AssignmentInfo])
+def get_user_assignments(db: Session = Depends(get_db)):
+    assignments = (
+        db.query(User, UserAssignment, PanelMaster)
+        .join(UserAssignment, UserAssignment.user_id == User.user_id)
+        .join(PanelMaster, PanelMaster.panel_id == UserAssignment.panel_id)
+        .all()
+    )
+
+    results = []
+    for assignment, user, panel in assignments:
+        qr_base64 = base64.b64encode(assignment.qr_code).decode('utf-8') if assignment.qr_code else ""
+        results.append({
+            "user_id": user.user_id,
+            "user_name": user.name,
+            "email_id": user.email_id,
+            "panel_id": panel.panel_id,
+            "panel_name": panel.panel_name,
+            "secret_code": assignment.secret_code,
+            "qr_code_base64": qr_base64,
+        })
+
+    return results
 
 # ------------------ RUN ------------------
 # Uncomment below to run directly
