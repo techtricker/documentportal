@@ -10,7 +10,7 @@ from database import SessionLocal, Base, engine
 from pydantic import BaseModel
 from fastapi.security import OAuth2PasswordRequestForm
 from models import PanelMaster, PortalUser, FileMeta, User, UserAssignment, UserScanLog
-from auth import verify_password, create_access_token, get_password_hash
+from auth import verify_password, create_access_token, get_password_hash, get_assignment_id_from_token
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List
 import secrets
@@ -37,9 +37,13 @@ class LoginRequest(BaseModel):
     portal_user_name: str
     password: str
 
+class GetFilesRequest(BaseModel):
+    access_token: str
+    
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
+    
 
 
 # ------------------ SCHEMAS ------------------
@@ -90,6 +94,16 @@ class UserDetails(BaseModel):
     class Config:
         orm_mode = True
 
+class FilesDetail(BaseModel):
+    user_id: int
+    panel_id: int
+    file_meta_id: int
+    file_name: str
+
+    class Config:
+        orm_mode = True
+
+
 # ------------------ Secret Code Generation ------------------
 def generate_secret_code(length: int = 8) -> str:
     alphabet = string.ascii_letters + string.digits
@@ -123,6 +137,28 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
 
     access_token = create_access_token(data={"sub": user.portal_user_name})
     return {"access_token": access_token}
+
+
+@app.post("/get-assigned-files", response_model=FilesDetail)
+def login(request: GetFilesRequest, db: Session = Depends(get_db)):
+    assignment_id = get_assignment_id_from_token(request.access_token)
+    assignment = db.query(UserAssignment).filter(UserAssignment.user_assignment_id == assignment_id).first()
+    if not assignment:
+        raise HTTPException(status_code=401, detail="Expired or Invalid access")
+
+    # Get files by panel ID
+    file_records = db.query(FileMeta).filter(FileMeta.panel_id == assignment.panel_id).all()
+
+    files = [
+        {"file_meta_id": f.file_meta_id, "file_name": f.file_name}
+        for f in file_records
+    ]
+
+    return {
+        "user_assignment_id": assignment.user_assignment_id,
+        "user_id": assignment.user_id,
+        "files": files,
+    }
 
 @app.get("/panel-files/{panel_id}", response_model=List[FileMetaResponse])
 def get_files_by_panel(panel_id: int, db: Session = Depends(get_db)):
