@@ -1,15 +1,7 @@
 from sqlalchemy import create_engine, Column, Integer, String, ForeignKey, LargeBinary, DateTime
 from sqlalchemy.orm import relationship, sessionmaker, declarative_base
 from datetime import datetime
-
-DATABASE_URL = "mysql+pymysql://username:password@localhost/documentportal"  # Change this to your MySQL credentials
-
-# Create SQLAlchemy engine and session
-engine = create_engine(DATABASE_URL)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-# Base class for models
-Base = declarative_base()
+from .database import Base
 
 # PanelMaster Model
 class PanelMaster(Base):
