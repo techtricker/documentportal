@@ -13,6 +13,8 @@ from models import PanelMaster, PortalUser, FileMeta, User, UserAssignment, User
 from auth import verify_password, create_access_token, get_password_hash
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List
+import secrets
+import string
 
 app = FastAPI()
 
@@ -57,6 +59,35 @@ class FileMetaResponse(BaseModel):
     class Config:
         orm_mode = True
 
+class UserAssignmentCreate(BaseModel):
+    user_id: int
+    panel_id: int
+    secret_code: str
+    qr_code: bytes
+
+    class Config:
+        orm_mode = True
+
+class UserAssignmentResponse(BaseModel):
+    user_assignment_id: int
+    user_id: int
+    panel_id: int
+    secret_code: str
+    qr_code: bytes
+
+    class Config:
+        orm_mode = True
+
+# ------------------ Secret Code Generation ------------------
+def generate_secret_code(length: int = 8) -> str:
+    """Generates a random secret code with a length between 6 and 10 characters."""
+    if length < 6 or length > 10:
+        raise ValueError("Length must be between 6 and 10 characters.")
+    
+    alphabet = string.ascii_letters + string.digits  # Uppercase, lowercase, and digits
+    secret_code = ''.join(secrets.choice(alphabet) for _ in range(length))
+    return secret_code
+    
 # ------------------ DEPENDENCY ------------------
 
 def get_db():
@@ -126,6 +157,15 @@ def read_panels(db: Session = Depends(get_db)):
 @app.post("/users")
 def create_user(user: UserCreate, db: Session = Depends(get_db)):
     db_user = User(name=user.name,email_id=user.email_id,phone_number=user.phone_number)
+    db.add(db_user)
+    db.commit()
+    db.refresh(db_user)
+    return db_user
+
+@app.post("/user-assignment")
+def user_assignment(user: UserAssignmentCreate, db: Session = Depends(get_db)):
+    secret_code = generate_secret_code()
+    db_user = User(user_id=user.user_id,panel_id=user.panel_id,secret_code=secret_code)
     db.add(db_user)
     db.commit()
     db.refresh(db_user)
