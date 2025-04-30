@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from fastapi.security import OAuth2PasswordRequestForm
 import models
 from auth import verify_password, create_access_token, get_password_hash
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
 
