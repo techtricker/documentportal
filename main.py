@@ -9,7 +9,7 @@ import uvicorn
 from database import SessionLocal, Base, engine
 from pydantic import BaseModel
 from fastapi.security import OAuth2PasswordRequestForm
-import models
+from models import PanelMaster, PortalUser, FileMeta, User, UserAssignment, UserScanLog
 from auth import verify_password, create_access_token, get_password_hash
 from fastapi.middleware.cors import CORSMiddleware
 
