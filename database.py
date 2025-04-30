@@ -12,7 +12,7 @@ import os
 
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
-config_path = '\\'.join([ROOT_DIR, 'config.json'])
+config_path = '/'.join([ROOT_DIR, 'config.json'])
 
 # read json file
 with open(config_path) as config_file:
