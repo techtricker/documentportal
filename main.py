@@ -63,7 +63,6 @@ class UserAssignmentCreate(BaseModel):
     user_id: int
     panel_id: int
     secret_code: str
-    qr_code: bytes
 
     class Config:
         orm_mode = True
