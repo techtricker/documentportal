@@ -44,7 +44,14 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     
+class FileInfo(BaseModel):
+    file_id: int
+    file_name: str
 
+class FilesDetail(BaseModel):
+    user_assignment_id: int
+    user_id: int
+    files: List[FileInfo]
 
 # ------------------ SCHEMAS ------------------
 
@@ -94,14 +101,6 @@ class UserDetails(BaseModel):
     class Config:
         orm_mode = True
 
-class FilesDetail(BaseModel):
-    user_id: int
-    panel_id: int
-    file_meta_id: int
-    file_name: str
-
-    class Config:
-        orm_mode = True
 
 
 # ------------------ Secret Code Generation ------------------
