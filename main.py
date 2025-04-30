@@ -50,10 +50,9 @@ class UserCreate(BaseModel):
     phone_number: str
 
 class FileMetaResponse(BaseModel):
-    file_id: int
+    file_meta_id: int
     panel_id: int
     file_name: str
-    uploaded_on: datetime
 
     class Config:
         orm_mode = True
