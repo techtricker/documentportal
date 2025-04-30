@@ -166,18 +166,14 @@ def create_user(user: UserCreate, db: Session = Depends(get_db)):
     return db_user
 
 @app.post("/user-assignment")
-def create_user_assignment(
-    user_id: int = Form(...),
-    panel_id: int = Form(...),
-    db: Session = Depends(get_db)
-):
+def create_user_assignment(payload: UserAssignmentCreate, db: Session = Depends(get_db)):
     secret_code = generate_secret_code()
-    file_url = f"http://localhost:8000/files/{panel_id}?code={secret_code}"
+    file_url = f"http://localhost:8000/files/{payload.panel_id}?code={secret_code}"
     qr_code_bytes = generate_qr_code_bytes(file_url)
 
     assignment = UserAssignment(
-        user_id=user_id,
-        panel_id=panel_id,
+        user_id=payload.user_id,
+        panel_id=payload.panel_id,
         secret_code=secret_code,
         qr_code=qr_code_bytes,
     )
