@@ -14,7 +14,7 @@ class PortalUser(Base):
     
 class PanelMaster(Base):
     __tablename__ = "panel_master"
-    panel_id = Column(Integer, primary_key=True, index=True)
+    panel_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     panel_name = Column(String)
     description = Column(String)
     file_meta = relationship("FileMeta", back_populates="panel")
