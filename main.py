@@ -204,7 +204,7 @@ def create_user_assignment(payload: UserAssignmentCreate, db: Session = Depends(
 def read_users(db: Session = Depends(get_db)):
     return db.query(User).all()
 
-@app.get("/user-details", response_model=List[AssignmentInfo])
+@app.get("/user-details", response_model=List[UserDetails])
 def get_user_assignments(db: Session = Depends(get_db)):
     assignments = (
         db.query(User, UserAssignment, PanelMaster)
