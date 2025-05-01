@@ -23,6 +23,7 @@ app = FastAPI()
 # Add this CORS configuration
 origins = [
     "http://localhost:3000",  # React app
+    "http://document-portal-tt.s3-website.ap-south-1.amazonaws.com/#/login"
 ]
 
 app.add_middleware(
