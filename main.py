@@ -279,6 +279,33 @@ def get_user_assignments(db: Session = Depends(get_db)):
 
     return results
 
+@app.delete("/users/{user_id}")
+def delete_user(user_id: int, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.user_id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Optional: delete related assignments
+    db.query(UserAssignment).filter(UserAssignment.user_id == user_id).delete()
+    
+    db.delete(user)
+    db.commit()
+    return {"message": f"User {user_id} deleted successfully"}
+
+@app.delete("/panels/{panel_id}")
+def delete_panel(panel_id: int, db: Session = Depends(get_db)):
+    panel = db.query(PanelMaster).filter(PanelMaster.panel_id == panel_id).first()
+    if not panel:
+        raise HTTPException(status_code=404, detail="Panel not found")
+    
+    # Optional: delete related files and assignments
+    db.query(FileMeta).filter(FileMeta.panel_id == panel_id).delete()
+    db.query(UserAssignment).filter(UserAssignment.panel_id == panel_id).delete()
+
+    db.delete(panel)
+    db.commit()
+    return {"message": f"Panel {panel_id} deleted successfully"}
+
 # ------------------ RUN ------------------
 # Uncomment below to run directly
 # if __name__ == "__main__":
