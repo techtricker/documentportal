@@ -101,7 +101,14 @@ class UserDetails(BaseModel):
     class Config:
         orm_mode = True
 
+class PanelUpdate(BaseModel):
+    panel_name: str
+    description: str
 
+class UserUpdate(BaseModel):
+    name: str
+    email_id: str
+    phone_number: str
 
 # ------------------ Secret Code Generation ------------------
 def generate_secret_code(length: int = 8) -> str:
@@ -306,6 +313,33 @@ def delete_panel(panel_id: int, db: Session = Depends(get_db)):
     db.commit()
     return {"message": f"Panel {panel_id} deleted successfully"}
 
+@app.put("/users/{user_id}")
+def update_user(user_id: int, user_update: UserUpdate, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.user_id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user.name = user_update.name
+    user.email_id = user_update.email_id
+    user.phone_number = user_update.phone_number
+
+    db.commit()
+    db.refresh(user)
+    return {"message": f"User {user_id} updated successfully", "user": user}
+
+@app.put("/panels/{panel_id}")
+def update_panel(panel_id: int, panel_update: PanelUpdate, db: Session = Depends(get_db)):
+    panel = db.query(PanelMaster).filter(PanelMaster.panel_id == panel_id).first()
+    if not panel:
+        raise HTTPException(status_code=404, detail="Panel not found")
+
+    panel.panel_name = panel_update.panel_name
+    panel.description = panel_update.description
+
+    db.commit()
+    db.refresh(panel)
+    return {"message": f"Panel {panel_id} updated successfully", "panel": panel}
+    
 # ------------------ RUN ------------------
 # Uncomment below to run directly
 # if __name__ == "__main__":
