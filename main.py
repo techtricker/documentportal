@@ -339,6 +339,16 @@ def update_panel(panel_id: int, panel_update: PanelUpdate, db: Session = Depends
     db.commit()
     db.refresh(panel)
     return {"message": f"Panel {panel_id} updated successfully", "panel": panel}
+
+@app.delete("/file-meta/{file_meta_id}")
+def delete_file_meta(file_meta_id: int, db: Session = Depends(get_db)):
+    file = db.query(FileMeta).filter(FileMeta.file_meta_id == file_meta_id).first()
+    if not file:
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    db.delete(file)
+    db.commit()
+    return {"message": "File deleted successfully"}
     
 # ------------------ RUN ------------------
 # Uncomment below to run directly
