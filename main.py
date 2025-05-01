@@ -23,7 +23,7 @@ app = FastAPI()
 # Add this CORS configuration
 origins = [
     "http://localhost:3000",  # React app
-    "http://document-portal-tt.s3-website.ap-south-1.amazonaws.com/#/login"
+    "http://document-portal-tt.s3-website.ap-south-1.amazonaws.com"
 ]
 
 app.add_middleware(
@@ -240,7 +240,7 @@ def create_user_assignment(payload: UserAssignmentCreate, db: Session = Depends(
     # Proper base64 encoding of the secret code
     encoded_bytes = base64.b64encode(secret_code.encode('utf-8'))
     encoded_str = encoded_bytes.decode('utf-8')
-    file_url = f"http://localhost:3000/#/verify-secret-code/{encoded_str}"
+    file_url = f"http://document-portal-tt.s3-website.ap-south-1.amazonaws.com/#/verify-secret-code/{encoded_str}"
     qr_code_bytes = generate_qr_code_bytes(file_url)
 
     assignment = UserAssignment(
