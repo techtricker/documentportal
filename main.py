@@ -146,6 +146,12 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
     return {"access_token": access_token}
 
 
+@app.get("/admin-dashboard")
+def get_dashboard_summary(db: Session = Depends(get_db)):
+    result = db.execute("SELECT metrics_json FROM dashboard_summary").fetchone()
+    return {"dashboard": result[0]}
+
+
 @app.post("/get-assigned-files", response_model=FilesDetail)
 def login(request: GetFilesRequest, db: Session = Depends(get_db)):
     assignment_id = get_assignment_id_from_token(request.access_token)
