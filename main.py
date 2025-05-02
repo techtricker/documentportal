@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy import create_engine, Column, Integer, String, ForeignKey, LargeBinary, DateTime
+from sqlalchemy import create_engine, Column, Integer, String, ForeignKey, LargeBinary, DateTime, text
 from sqlalchemy.orm import sessionmaker, relationship, declarative_base, Session
 from datetime import datetime
 from io import BytesIO
@@ -148,7 +148,7 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
 
 @app.get("/admin-dashboard")
 def get_dashboard_summary(db: Session = Depends(get_db)):
-    result = db.execute("SELECT metrics_json FROM dashboard_summary_view").fetchone()
+    result = db.execute(text("SELECT metrics_json FROM dashboard_summary_view")).fetchone()
     return {"dashboard": result[0]}
 
 
