@@ -148,7 +148,7 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
 
 @app.get("/admin-dashboard")
 def get_dashboard_summary(db: Session = Depends(get_db)):
-    result = db.execute("SELECT metrics_json FROM dashboard_summary").fetchone()
+    result = db.execute(text("SELECT metrics_json FROM dashboard_summary_view")).fetchone()
     return {"dashboard": result[0]}
 
 
