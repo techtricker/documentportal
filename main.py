@@ -10,13 +10,15 @@ from database import SessionLocal, Base, engine
 from pydantic import BaseModel
 from fastapi.security import OAuth2PasswordRequestForm
 from models import PanelMaster, PortalUser, FileMeta, User, UserAssignment, UserScanLog
-from auth import verify_password, create_access_token, get_password_hash, get_assignment_id_from_token
+from auth import verify_token, verify_password, create_access_token, get_password_hash, get_assignment_id_from_token
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List
 import secrets
 import string
 import qrcode
 import base64
+import os
+import hashlib
 
 app = FastAPI()
 
@@ -25,6 +27,8 @@ origins = [
     "http://localhost:3000",  # React app
     "http://document-portal-tt.s3-website.ap-south-1.amazonaws.com"
 ]
+
+PANEL_BASE_DIR = "../panels"
 
 app.add_middleware(
     CORSMiddleware,
@@ -56,14 +60,32 @@ class FilesDetail(BaseModel):
 
 # ------------------ SCHEMAS ------------------
 
+class PanelAssignment(BaseModel):
+    panel_name: str
+
+class UserBase(BaseModel):
+    name: str
+    email_id: str
+    phone_number: str
+
+class UserCreate(UserBase):
+    panels: List[PanelAssignment]
+
+class UserUpdate(UserCreate):
+    pass
+
 class PanelCreate(BaseModel):
     panel_name: str
     description: str
 
-class UserCreate(BaseModel):
-    name: str
-    email_id: str
-    phone_number: str
+class UserPanelList(BaseModel):
+    panel_name: str
+
+# class UserCreate(BaseModel):
+#     name: str
+#     email_id: str
+#     phone_number: str
+#     panels: List[UserPanelList]
 
 class FileMetaResponse(BaseModel):
     file_meta_id: int
@@ -106,10 +128,10 @@ class PanelUpdate(BaseModel):
     panel_name: str
     description: str
 
-class UserUpdate(BaseModel):
-    name: str
-    email_id: str
-    phone_number: str
+# class UserUpdate(BaseModel):
+#     name: str
+#     email_id: str
+#     phone_number: str
 
 # ------------------ Secret Code Generation ------------------
 def generate_secret_code(length: int = 8) -> str:
@@ -216,29 +238,13 @@ def verify_secret(secret_code: str, db: Session = Depends(get_db)):
     assignment = db.query(UserAssignment).filter_by(secret_code=secret_code).first()
     if assignment and assignment.secret_code == secret_code:
         user = db.query(User).filter_by(user_id=assignment.user_id).first()
-        access_token = create_access_token(data={"name": user.name,"user_id":user.user_id,"assignment":assignment.user_assignment_id})
+        access_token = create_access_token(data={"sub": user.name,"user_id":user.user_id,"assignment":assignment.user_assignment_id})
         return {"status": "verified","access_token":access_token}
     raise HTTPException(status_code=403, detail="Invalid secret code")
 
-@app.post("/panels")
-def create_panel(panel: PanelCreate, db: Session = Depends(get_db)):
-    db_panel = PanelMaster(panel_name=panel.panel_name, description=panel.description)
-    db.add(db_panel)
-    db.commit()
-    db.refresh(db_panel)
-    return db_panel
 
-@app.get("/panels")
-def read_panels(db: Session = Depends(get_db)):
-    return db.query(PanelMaster).all()
 
-@app.post("/users")
-def create_user(user: UserCreate, db: Session = Depends(get_db)):
-    db_user = User(name=user.name,email_id=user.email_id,phone_number=user.phone_number)
-    db.add(db_user)
-    db.commit()
-    db.refresh(db_user)
-    return db_user
+
 
 @app.post("/user-assignment")
 def create_user_assignment(payload: UserAssignmentCreate, db: Session = Depends(get_db)):
@@ -269,29 +275,58 @@ def create_user_assignment(payload: UserAssignmentCreate, db: Session = Depends(
 def read_users(db: Session = Depends(get_db)):
     return db.query(User).all()
 
-@app.get("/user-details", response_model=List[UserDetails])
+@app.get("/user-details")
 def get_user_assignments(db: Session = Depends(get_db)):
     assignments = (
-        db.query(UserAssignment, User, PanelMaster)
+        db.query(UserAssignment, User)
         .join(User, User.user_id == UserAssignment.user_id)
-        .join(PanelMaster, PanelMaster.panel_id == UserAssignment.panel_id)
         .all()
     )
 
-    results = []
-    for assignment, user, panel in assignments:
+    user_map = {}
+
+    for assignment, user in assignments:
         qr_base64 = base64.b64encode(assignment.qr_code).decode('utf-8') if assignment.qr_code else ""
-        results.append({
-            "user_id": user.user_id,
-            "user_name": user.name,
-            "email_id": user.email_id,
-            "panel_id": panel.panel_id,
-            "panel_name": panel.panel_name,
+
+        if user.user_id not in user_map:
+            user_map[user.user_id] = {
+                "user_id": user.user_id,
+                "user_name": user.name,
+                "email_id": user.email_id,
+                "assignments": []
+            }
+
+        user_map[user.user_id]["assignments"].append({
+            "panel_name": assignment.panel_name,
             "secret_code": assignment.secret_code,
             "qr_code_base64": qr_base64,
         })
 
-    return results
+    return list(user_map.values())
+
+# @app.get("/user-details", response_model=List[UserDetails])
+# def get_user_assignments(db: Session = Depends(get_db)):
+#     assignments = (
+#         db.query(UserAssignment, User, PanelMaster)
+#         .join(User, User.user_id == UserAssignment.user_id)
+#         .join(PanelMaster, PanelMaster.panel_id == UserAssignment.panel_id)
+#         .all()
+#     )
+
+#     results = []
+#     for assignment, user, panel in assignments:
+#         qr_base64 = base64.b64encode(assignment.qr_code).decode('utf-8') if assignment.qr_code else ""
+#         results.append({
+#             "user_id": user.user_id,
+#             "user_name": user.name,
+#             "email_id": user.email_id,
+#             "panel_id": panel.panel_id,
+#             "panel_name": panel.panel_name,
+#             "secret_code": assignment.secret_code,
+#             "qr_code_base64": qr_base64,
+#         })
+
+#     return results
 
 @app.delete("/users/{user_id}")
 def delete_user(user_id: int, db: Session = Depends(get_db)):
@@ -306,20 +341,6 @@ def delete_user(user_id: int, db: Session = Depends(get_db)):
     db.commit()
     return {"message": f"User {user_id} deleted successfully"}
 
-@app.delete("/panels/{panel_id}")
-def delete_panel(panel_id: int, db: Session = Depends(get_db)):
-    panel = db.query(PanelMaster).filter(PanelMaster.panel_id == panel_id).first()
-    if not panel:
-        raise HTTPException(status_code=404, detail="Panel not found")
-    
-    # Optional: delete related files and assignments
-    db.query(FileMeta).filter(FileMeta.panel_id == panel_id).delete()
-    db.query(UserAssignment).filter(UserAssignment.panel_id == panel_id).delete()
-
-    db.delete(panel)
-    db.commit()
-    return {"message": f"Panel {panel_id} deleted successfully"}
-
 @app.put("/users/{user_id}")
 def update_user(user_id: int, user_update: UserUpdate, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.user_id == user_id).first()
@@ -332,30 +353,91 @@ def update_user(user_id: int, user_update: UserUpdate, db: Session = Depends(get
 
     db.commit()
     db.refresh(user)
+
+    # Get current & incoming panel names
+    existing_assignments = db.query(UserAssignment).filter(UserAssignment.user_id == user.user_id).all()
+    existing_panel_names = {a.panel_name for a in existing_assignments}
+    new_panel_names = {p.panel_name for p in user.panels}
+
+    # Delete removed panels
+    panels_to_delete = existing_panel_names - new_panel_names
+    if panels_to_delete:
+        db.query(UserAssignment).filter(
+            UserAssignment.user_id == user_id,
+            UserAssignment.panel_name.in_(panels_to_delete)
+        ).delete(synchronize_session=False)
+
+    # Add new panels
+    panels_to_add = new_panel_names - existing_panel_names
+    for panel in user.panels:
+        if panel.panel_name in panels_to_add:
+            secret_code = generate_secret_code()
+            encoded_str = base64.b64encode(secret_code.encode('utf-8')).decode('utf-8')
+            file_url = f"http://document-portal-tt.s3-website.ap-south-1.amazonaws.com/#/verify-secret-code/{encoded_str}"
+            qr_code_bytes = generate_qr_code_bytes(file_url)
+
+            db_assignment = UserAssignment(
+                user_id=user_id,
+                panel_name=panel.panel_name,
+                secret_code=secret_code,
+                qr_code=qr_code_bytes
+            )
+            db.add(db_assignment)
+
+    db.commit()
     return {"message": f"User {user_id} updated successfully", "user": user}
 
-@app.put("/panels/{panel_id}")
-def update_panel(panel_id: int, panel_update: PanelUpdate, db: Session = Depends(get_db)):
-    panel = db.query(PanelMaster).filter(PanelMaster.panel_id == panel_id).first()
-    if not panel:
-        raise HTTPException(status_code=404, detail="Panel not found")
 
-    panel.panel_name = panel_update.panel_name
-    panel.description = panel_update.description
+@app.get("/panels")
+def get_panels_from_folders(str = Depends(verify_token)):
+    panels = []
+    for folder_name in os.listdir(PANEL_BASE_DIR):
+        full_path = os.path.join(PANEL_BASE_DIR, folder_name)
+        if os.path.isdir(full_path):
+            # Create deterministic short hash as panel_id
+            hash_bytes = hashlib.sha256(folder_name.encode()).digest()
+            short_id = base64.urlsafe_b64encode(hash_bytes[:6]).decode('utf-8').rstrip('=')
+
+            # Count files in the folder
+            file_count = sum(
+                1 for f in os.listdir(full_path)
+                if os.path.isfile(os.path.join(full_path, f))
+            )
+
+            panels.append({
+                "panel_id": short_id,
+                "panel_name": folder_name,
+                "panel_path": os.path.abspath(full_path),
+                "file_count": file_count
+            })
+
+    return panels
+
+
+@app.post("/users")
+def create_user(user: UserCreate, db: Session = Depends(get_db)):
+    db_user = User(name=user.name,email_id=user.email_id,phone_number=user.phone_number)
+    db.add(db_user)
+    db.commit()
+    db.refresh(db_user)
+    # Loop through assignments and create them
+    for panel in user.panels:
+        secret_code = generate_secret_code()
+        # Proper base64 encoding of the secret code
+        encoded_bytes = base64.b64encode(secret_code.encode('utf-8'))
+        encoded_str = encoded_bytes.decode('utf-8')
+        file_url = f"http://document-portal-tt.s3-website.ap-south-1.amazonaws.com/#/verify-secret-code/{encoded_str}"
+        qr_code_bytes = generate_qr_code_bytes(file_url)
+        db_assignment = UserAssignment(
+            user_id=db_user.user_id,
+            panel_name=panel.panel_name,
+            secret_code=secret_code,
+            qr_code=qr_code_bytes
+        )
+        db.add(db_assignment)
 
     db.commit()
-    db.refresh(panel)
-    return {"message": f"Panel {panel_id} updated successfully", "panel": panel}
-
-@app.delete("/file-meta/{file_meta_id}")
-def delete_file_meta(file_meta_id: int, db: Session = Depends(get_db)):
-    file = db.query(FileMeta).filter(FileMeta.file_meta_id == file_meta_id).first()
-    if not file:
-        raise HTTPException(status_code=404, detail="File not found")
-    
-    db.delete(file)
-    db.commit()
-    return {"message": "File deleted successfully"}
+    return db_user
     
 # ------------------ RUN ------------------
 # Uncomment below to run directly

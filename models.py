@@ -38,7 +38,7 @@ class UserAssignment(Base):
     __tablename__ = "user_assignment"
     user_assignment_id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.user_id"))
-    panel_id = Column(Integer, ForeignKey("panel_master.panel_id"))
+    panel_name = Column(String)
     secret_code = Column(String)
     qr_code = Column(LargeBinary)
 
