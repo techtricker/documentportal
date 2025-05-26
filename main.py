@@ -29,6 +29,7 @@ origins = [
 ]
 
 PANEL_BASE_DIR = "../panels"
+WEBAPP_URL = "http://localhost:3000/#/"
 
 app.add_middleware(
     CORSMiddleware,
@@ -56,6 +57,7 @@ class FileInfo(BaseModel):
 class FilesDetail(BaseModel):
     user_assignment_id: int
     user_id: int
+    panel_name: str
     files: List[FileInfo]
 
 # ------------------ SCHEMAS ------------------
@@ -174,26 +176,54 @@ def get_dashboard_summary(db: Session = Depends(get_db)):
     return {"dashboard": result[0]}
 
 
+# @app.post("/get-assigned-files", response_model=FilesDetail)
+# def login(request: GetFilesRequest, db: Session = Depends(get_db)):
+#     assignment_id = get_assignment_id_from_token(request.access_token)
+#     print(assignment_id)
+#     assignment = db.query(UserAssignment).filter(UserAssignment.user_assignment_id == assignment_id).first()
+#     if not assignment:
+#         raise HTTPException(status_code=401, detail="Expired or Invalid access")
+
+#     # Get files by panel ID
+#     file_records = db.query(FileMeta).filter(FileMeta.panel_id == assignment.panel_id).all()
+
+#     files = [
+#         {"file_meta_id": f.file_meta_id, "file_name": f.file_name}
+#         for f in file_records
+#     ]
+
+#     return {
+#         "user_assignment_id": assignment.user_assignment_id,
+#         "user_id": assignment.user_id,
+#         "files": files,
+#     }
+
 @app.post("/get-assigned-files", response_model=FilesDetail)
-def login(request: GetFilesRequest, db: Session = Depends(get_db)):
+def get_assigned_files(request: GetFilesRequest, db: Session = Depends(get_db)):
     assignment_id = get_assignment_id_from_token(request.access_token)
-    print(assignment_id)
     assignment = db.query(UserAssignment).filter(UserAssignment.user_assignment_id == assignment_id).first()
+    
     if not assignment:
         raise HTTPException(status_code=401, detail="Expired or Invalid access")
 
-    # Get files by panel ID
-    file_records = db.query(FileMeta).filter(FileMeta.panel_id == assignment.panel_id).all()
+    panel_folder = os.path.join(PANEL_BASE_DIR, assignment.panel_name)
+
+    if not os.path.exists(panel_folder) or not os.path.isdir(panel_folder):
+        raise HTTPException(status_code=404, detail="Panel folder not found")
+
+    file_names = os.listdir(panel_folder)
 
     files = [
-        {"file_meta_id": f.file_meta_id, "file_name": f.file_name}
-        for f in file_records
+        {"file_meta_id": idx + 1, "file_name": f}
+        for idx, f in enumerate(file_names)
+        if os.path.isfile(os.path.join(panel_folder, f))
     ]
 
     return {
         "user_assignment_id": assignment.user_assignment_id,
         "user_id": assignment.user_id,
         "files": files,
+        "panel_name": assignment.panel_name
     }
 
 @app.get("/panel-files/{panel_id}", response_model=List[FileMetaResponse])
@@ -203,14 +233,26 @@ def get_files_by_panel(panel_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="No files found for this panel")
     return files
 
-@app.get("/view-file/{file_meta_id}")
-def view_file(file_meta_id: int, db: Session = Depends(get_db)):
-    file = db.query(FileMeta).filter(FileMeta.file_meta_id == file_meta_id).first()
-    if not file:
+# @app.get("/view-file/{file_meta_id}")
+# def view_file(file_meta_id: int, db: Session = Depends(get_db)):
+#     file = db.query(FileMeta).filter(FileMeta.file_meta_id == file_meta_id).first()
+#     if not file:
+#         raise HTTPException(status_code=404, detail="File not found")
+
+#     return StreamingResponse(BytesIO(file.file_data), media_type="application/pdf", headers={
+#         "Content-Disposition": f"inline; filename={file.file_name}"
+#     })
+
+@app.get("/view-file/{panel_name}/{file_name}")
+def view_file(panel_name: str, file_name: str):
+    file_path = os.path.join(PANEL_BASE_DIR, panel_name, file_name)
+
+    if not os.path.exists(file_path) or not os.path.isfile(file_path):
         raise HTTPException(status_code=404, detail="File not found")
 
-    return StreamingResponse(BytesIO(file.file_data), media_type="application/pdf", headers={
-        "Content-Disposition": f"inline; filename={file.file_name}"
+    file_stream = open(file_path, "rb")
+    return StreamingResponse(file_stream, media_type="application/pdf", headers={
+        "Content-Disposition": f"inline; filename={file_name}"
     })
     
 @app.post("/upload-file/")
@@ -252,7 +294,7 @@ def create_user_assignment(payload: UserAssignmentCreate, db: Session = Depends(
     # Proper base64 encoding of the secret code
     encoded_bytes = base64.b64encode(secret_code.encode('utf-8'))
     encoded_str = encoded_bytes.decode('utf-8')
-    file_url = f"http://document-portal-tt.s3-website.ap-south-1.amazonaws.com/#/verify-secret-code/{encoded_str}"
+    file_url = f"{WEBAPP_URL}verify-secret-code/{encoded_str}"
     qr_code_bytes = generate_qr_code_bytes(file_url)
 
     assignment = UserAssignment(
@@ -293,6 +335,7 @@ def get_user_assignments(db: Session = Depends(get_db)):
                 "user_id": user.user_id,
                 "user_name": user.name,
                 "email_id": user.email_id,
+                "phone_number": user.phone_number,
                 "assignments": []
             }
 
@@ -341,6 +384,61 @@ def delete_user(user_id: int, db: Session = Depends(get_db)):
     db.commit()
     return {"message": f"User {user_id} deleted successfully"}
 
+#------ Panels ----------#
+@app.get("/panels")
+def get_panels_from_folders(str = Depends(verify_token)):
+    panels = []
+    for folder_name in os.listdir(PANEL_BASE_DIR):
+        full_path = os.path.join(PANEL_BASE_DIR, folder_name)
+        if os.path.isdir(full_path):
+            # Create deterministic short hash as panel_id
+            hash_bytes = hashlib.sha256(folder_name.encode()).digest()
+            short_id = base64.urlsafe_b64encode(hash_bytes[:6]).decode('utf-8').rstrip('=')
+
+            # Count files in the folder
+            file_names = [
+                f for f in os.listdir(full_path)
+                if os.path.isfile(os.path.join(full_path, f))
+            ]
+
+            panels.append({
+                "panel_id": short_id,
+                "panel_name": folder_name,
+                "panel_path": os.path.abspath(full_path),
+                "file_count": len(file_names),
+                "files": file_names
+            })
+
+    return panels
+
+# ------------------ Users ------------------
+@app.post("/users")
+def create_user(user: UserCreate, db: Session = Depends(get_db)):
+    db_user = User(name=user.name,email_id=user.email_id,phone_number=user.phone_number)
+    db.add(db_user)
+    db.commit()
+    db.refresh(db_user)
+    # Loop through assignments and create them
+    for panel in user.panels:
+        secret_code = generate_secret_code()
+        # Proper base64 encoding of the secret code
+        encoded_bytes = base64.b64encode(secret_code.encode('utf-8'))
+        encoded_str = encoded_bytes.decode('utf-8')
+        file_url = f"{WEBAPP_URL}verify-secret-code/{encoded_str}"
+        qr_code_bytes = generate_qr_code_bytes(file_url)
+        db_assignment = UserAssignment(
+            user_id=db_user.user_id,
+            panel_name=panel.panel_name,
+            secret_code=secret_code,
+            qr_code=qr_code_bytes
+        )
+        db.add(db_assignment)
+
+    db.commit()
+    return db_user
+
+
+
 @app.put("/users/{user_id}")
 def update_user(user_id: int, user_update: UserUpdate, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.user_id == user_id).first()
@@ -357,7 +455,7 @@ def update_user(user_id: int, user_update: UserUpdate, db: Session = Depends(get
     # Get current & incoming panel names
     existing_assignments = db.query(UserAssignment).filter(UserAssignment.user_id == user.user_id).all()
     existing_panel_names = {a.panel_name for a in existing_assignments}
-    new_panel_names = {p.panel_name for p in user.panels}
+    new_panel_names = {p.panel_name for p in user_update.panels}
 
     # Delete removed panels
     panels_to_delete = existing_panel_names - new_panel_names
@@ -369,11 +467,11 @@ def update_user(user_id: int, user_update: UserUpdate, db: Session = Depends(get
 
     # Add new panels
     panels_to_add = new_panel_names - existing_panel_names
-    for panel in user.panels:
+    for panel in user_update.panels:
         if panel.panel_name in panels_to_add:
             secret_code = generate_secret_code()
             encoded_str = base64.b64encode(secret_code.encode('utf-8')).decode('utf-8')
-            file_url = f"http://document-portal-tt.s3-website.ap-south-1.amazonaws.com/#/verify-secret-code/{encoded_str}"
+            file_url = f"{WEBAPP_URL}verify-secret-code/{encoded_str}"
             qr_code_bytes = generate_qr_code_bytes(file_url)
 
             db_assignment = UserAssignment(
@@ -387,57 +485,6 @@ def update_user(user_id: int, user_update: UserUpdate, db: Session = Depends(get
     db.commit()
     return {"message": f"User {user_id} updated successfully", "user": user}
 
-
-@app.get("/panels")
-def get_panels_from_folders(str = Depends(verify_token)):
-    panels = []
-    for folder_name in os.listdir(PANEL_BASE_DIR):
-        full_path = os.path.join(PANEL_BASE_DIR, folder_name)
-        if os.path.isdir(full_path):
-            # Create deterministic short hash as panel_id
-            hash_bytes = hashlib.sha256(folder_name.encode()).digest()
-            short_id = base64.urlsafe_b64encode(hash_bytes[:6]).decode('utf-8').rstrip('=')
-
-            # Count files in the folder
-            file_count = sum(
-                1 for f in os.listdir(full_path)
-                if os.path.isfile(os.path.join(full_path, f))
-            )
-
-            panels.append({
-                "panel_id": short_id,
-                "panel_name": folder_name,
-                "panel_path": os.path.abspath(full_path),
-                "file_count": file_count
-            })
-
-    return panels
-
-
-@app.post("/users")
-def create_user(user: UserCreate, db: Session = Depends(get_db)):
-    db_user = User(name=user.name,email_id=user.email_id,phone_number=user.phone_number)
-    db.add(db_user)
-    db.commit()
-    db.refresh(db_user)
-    # Loop through assignments and create them
-    for panel in user.panels:
-        secret_code = generate_secret_code()
-        # Proper base64 encoding of the secret code
-        encoded_bytes = base64.b64encode(secret_code.encode('utf-8'))
-        encoded_str = encoded_bytes.decode('utf-8')
-        file_url = f"http://document-portal-tt.s3-website.ap-south-1.amazonaws.com/#/verify-secret-code/{encoded_str}"
-        qr_code_bytes = generate_qr_code_bytes(file_url)
-        db_assignment = UserAssignment(
-            user_id=db_user.user_id,
-            panel_name=panel.panel_name,
-            secret_code=secret_code,
-            qr_code=qr_code_bytes
-        )
-        db.add(db_assignment)
-
-    db.commit()
-    return db_user
     
 # ------------------ RUN ------------------
 # Uncomment below to run directly
