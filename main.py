@@ -63,7 +63,7 @@ class FilesDetail(BaseModel):
 # ------------------ SCHEMAS ------------------
 
 class PanelAssignment(BaseModel):
-    panel_name: str
+    panel_id: int
 
 class UserBase(BaseModel):
     name: str
@@ -160,6 +160,145 @@ def get_db():
 
 # ------------------ ENDPOINTS ------------------
 
+# ------------------ Functions ------------------
+def sync_panels_and_files(db: Session):
+    # Step 1: Read current panel folders from disk
+    actual_panels = {
+        panel_name: os.path.join(PANEL_BASE_DIR, panel_name)
+        for panel_name in os.listdir(PANEL_BASE_DIR)
+        if os.path.isdir(os.path.join(PANEL_BASE_DIR, panel_name))
+    }
+
+    # Step 2: Fetch all existing panels from DB
+    db_panels = db.query(PanelMaster).all()
+    db_panel_map = {p.panel_name: p for p in db_panels}
+
+    actual_panel_names = set(actual_panels.keys())
+    db_panel_names = set(db_panel_map.keys())
+
+    # Step 3: Mark deleted panels (present in DB but not on disk)
+    panels_to_delete = db_panel_names - actual_panel_names
+    for pname in panels_to_delete:
+        db_panel_map[pname].is_deleted = True
+
+    # Step 4: Add new panels and files
+    for panel_name, panel_path in actual_panels.items():
+        if panel_name not in db_panel_map:
+            # New Panel
+            new_panel = PanelMaster(panel_name=panel_name, description="", is_deleted=False)
+            db.add(new_panel)
+            db.commit()
+            db.refresh(new_panel)
+            db_panel_map[panel_name] = new_panel
+        else:
+            # Reactivate if it was previously marked deleted
+            if db_panel_map[panel_name].is_deleted:
+                db_panel_map[panel_name].is_deleted = False
+
+        panel_id = db_panel_map[panel_name].panel_id
+
+        # Fetch file records for this panel
+        existing_files = db.query(FileMeta).filter(FileMeta.panel_id == panel_id).all()
+        existing_file_names = {f.file_name: f for f in existing_files}
+
+        # Files from disk
+        actual_file_names = set()
+        for fname in os.listdir(panel_path):
+            file_path = os.path.join(panel_path, fname)
+            if os.path.isfile(file_path):
+                actual_file_names.add(fname)
+                if fname not in existing_file_names:
+                    # New file
+                    new_file = FileMeta(panel_id=panel_id, file_name=fname, is_deleted=False)
+                    db.add(new_file)
+                else:
+                    # Reactivate if deleted
+                    file = existing_file_names[fname]
+                    if file.is_deleted:
+                        file.is_deleted = False
+
+        # Mark missing files as deleted
+        db_file_names = set(existing_file_names.keys())
+        deleted_files = db_file_names - actual_file_names
+        for missing_fname in deleted_files:
+            existing_file_names[missing_fname].is_deleted = True
+
+    db.commit()
+
+#------------------- APIs -------------------------
+
+#### Panel APIs
+
+@app.get("/sync-panels-manually")
+def manual_sync(db: Session = Depends(get_db)):
+    sync_panels_and_files(db)
+    return {"message": "Panels and files synced successfully"}
+
+# @app.get("/panels")
+# def get_panels_from_folders(str = Depends(verify_token)):
+#     panels = []
+#     for folder_name in os.listdir(PANEL_BASE_DIR):
+#         full_path = os.path.join(PANEL_BASE_DIR, folder_name)
+#         if os.path.isdir(full_path):
+#             # Create deterministic short hash as panel_id
+#             hash_bytes = hashlib.sha256(folder_name.encode()).digest()
+#             short_id = base64.urlsafe_b64encode(hash_bytes[:6]).decode('utf-8').rstrip('=')
+
+#             # Count files in the folder
+#             file_names = [
+#                 f for f in os.listdir(full_path)
+#                 if os.path.isfile(os.path.join(full_path, f))
+#             ]
+
+#             panels.append({
+#                 "panel_id": short_id,
+#                 "panel_name": folder_name,
+#                 "panel_path": os.path.abspath(full_path),
+#                 "file_count": len(file_names),
+#                 "files": file_names
+#             })
+
+#     return panels
+
+## str = Depends(verify_token)
+
+@app.get("/panels")
+def get_panels(db: Session = Depends(get_db)):
+    panels = []
+
+    # Fetch all active (non-deleted) panels
+    db_panels = db.query(PanelMaster).filter(PanelMaster.is_deleted == False).all()
+
+    for panel in db_panels:
+        # Fetch non-deleted files for this panel
+        file_records = db.query(FileMeta).filter(
+            FileMeta.panel_id == panel.panel_id,
+            FileMeta.is_deleted == False
+        ).all()
+
+        # Build file list with id and name
+        file_list = [
+            {
+                "file_meta_id": f.file_meta_id,
+                "file_name": f.file_name
+            }
+            for f in file_records
+        ]
+
+        panels.append({
+            "panel_id": panel.panel_id,
+            "panel_name": panel.panel_name,
+            "file_count": len(file_records),
+            "files": file_list
+        })
+
+    return panels
+
+
+
+
+#### Authentication APIs
+
 @app.post("/login", response_model=TokenResponse)
 def login(request: LoginRequest, db: Session = Depends(get_db)):
     user = db.query(PortalUser).filter(PortalUser.portal_user_name == request.portal_user_name).first()
@@ -170,148 +309,16 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
     return {"access_token": access_token}
 
 
+#### Application APIs
+
 @app.get("/admin-dashboard")
 def get_dashboard_summary(db: Session = Depends(get_db)):
     result = db.execute(text("SELECT metrics_json FROM dashboard_summary_view")).fetchone()
     return {"dashboard": result[0]}
 
 
-# @app.post("/get-assigned-files", response_model=FilesDetail)
-# def login(request: GetFilesRequest, db: Session = Depends(get_db)):
-#     assignment_id = get_assignment_id_from_token(request.access_token)
-#     print(assignment_id)
-#     assignment = db.query(UserAssignment).filter(UserAssignment.user_assignment_id == assignment_id).first()
-#     if not assignment:
-#         raise HTTPException(status_code=401, detail="Expired or Invalid access")
+#### User APIs
 
-#     # Get files by panel ID
-#     file_records = db.query(FileMeta).filter(FileMeta.panel_id == assignment.panel_id).all()
-
-#     files = [
-#         {"file_meta_id": f.file_meta_id, "file_name": f.file_name}
-#         for f in file_records
-#     ]
-
-#     return {
-#         "user_assignment_id": assignment.user_assignment_id,
-#         "user_id": assignment.user_id,
-#         "files": files,
-#     }
-
-@app.post("/get-assigned-files", response_model=FilesDetail)
-def get_assigned_files(request: GetFilesRequest, db: Session = Depends(get_db)):
-    assignment_id = get_assignment_id_from_token(request.access_token)
-    assignment = db.query(UserAssignment).filter(UserAssignment.user_assignment_id == assignment_id).first()
-    
-    if not assignment:
-        raise HTTPException(status_code=401, detail="Expired or Invalid access")
-
-    panel_folder = os.path.join(PANEL_BASE_DIR, assignment.panel_name)
-
-    if not os.path.exists(panel_folder) or not os.path.isdir(panel_folder):
-        raise HTTPException(status_code=404, detail="Panel folder not found")
-
-    file_names = os.listdir(panel_folder)
-
-    files = [
-        {"file_meta_id": idx + 1, "file_name": f}
-        for idx, f in enumerate(file_names)
-        if os.path.isfile(os.path.join(panel_folder, f))
-    ]
-
-    return {
-        "user_assignment_id": assignment.user_assignment_id,
-        "user_id": assignment.user_id,
-        "files": files,
-        "panel_name": assignment.panel_name
-    }
-
-@app.get("/panel-files/{panel_id}", response_model=List[FileMetaResponse])
-def get_files_by_panel(panel_id: int, db: Session = Depends(get_db)):
-    files = db.query(FileMeta.file_meta_id, FileMeta.panel_id, FileMeta.file_name).filter(FileMeta.panel_id == panel_id).all()
-    if not files:
-        raise HTTPException(status_code=404, detail="No files found for this panel")
-    return files
-
-# @app.get("/view-file/{file_meta_id}")
-# def view_file(file_meta_id: int, db: Session = Depends(get_db)):
-#     file = db.query(FileMeta).filter(FileMeta.file_meta_id == file_meta_id).first()
-#     if not file:
-#         raise HTTPException(status_code=404, detail="File not found")
-
-#     return StreamingResponse(BytesIO(file.file_data), media_type="application/pdf", headers={
-#         "Content-Disposition": f"inline; filename={file.file_name}"
-#     })
-
-@app.get("/view-file/{panel_name}/{file_name}")
-def view_file(panel_name: str, file_name: str):
-    file_path = os.path.join(PANEL_BASE_DIR, panel_name, file_name)
-
-    if not os.path.exists(file_path) or not os.path.isfile(file_path):
-        raise HTTPException(status_code=404, detail="File not found")
-
-    file_stream = open(file_path, "rb")
-    return StreamingResponse(file_stream, media_type="application/pdf", headers={
-        "Content-Disposition": f"inline; filename={file_name}"
-    })
-    
-@app.post("/upload-file/")
-def upload_file(panel_id: int = Form(...), file: UploadFile = File(...), db: Session = Depends(get_db)):
-    contents = file.file.read()
-    file_meta = FileMeta(panel_id=panel_id, file_name=file.filename, file_data=contents)
-    db.add(file_meta)
-    db.commit()
-    return {"message": "File uploaded"}
-
-@app.get("/view-file1/{assignment_id}")
-def view_file(assignment_id: int, secret_code: str, db: Session = Depends(get_db)):
-    assignment = db.query(UserAssignment).filter_by(user_assignment_id=assignment_id).first()
-    if not assignment or assignment.secret_code != secret_code:
-        raise HTTPException(status_code=403, detail="Invalid secret code")
-
-    file_meta = db.query(FileMeta).filter_by(panel_id=assignment.panel_id).first()
-    if not file_meta:
-        raise HTTPException(status_code=404, detail="File not found")
-
-    return StreamingResponse(BytesIO(file_meta.file_data), media_type="application/pdf", headers={"Content-Disposition": f"inline; filename={file_meta.file_name}"})
-
-@app.post("/verify-secret/{secret_code}")
-def verify_secret(secret_code: str, db: Session = Depends(get_db)):
-    assignment = db.query(UserAssignment).filter_by(secret_code=secret_code).first()
-    if assignment and assignment.secret_code == secret_code:
-        user = db.query(User).filter_by(user_id=assignment.user_id).first()
-        access_token = create_access_token(data={"sub": user.name,"user_id":user.user_id,"assignment":assignment.user_assignment_id})
-        return {"status": "verified","access_token":access_token}
-    raise HTTPException(status_code=403, detail="Invalid secret code")
-
-
-
-
-
-@app.post("/user-assignment")
-def create_user_assignment(payload: UserAssignmentCreate, db: Session = Depends(get_db)):
-    secret_code = generate_secret_code()
-    # Proper base64 encoding of the secret code
-    encoded_bytes = base64.b64encode(secret_code.encode('utf-8'))
-    encoded_str = encoded_bytes.decode('utf-8')
-    file_url = f"{WEBAPP_URL}verify-secret-code/{encoded_str}"
-    qr_code_bytes = generate_qr_code_bytes(file_url)
-
-    assignment = UserAssignment(
-        user_id=payload.user_id,
-        panel_id=payload.panel_id,
-        secret_code=secret_code,
-        qr_code=qr_code_bytes,
-    )
-
-    db.add(assignment)
-    db.commit()
-    db.refresh(assignment)
-
-    return {
-        "user_assignment_id": assignment.user_assignment_id,
-        "secret_code": assignment.secret_code
-    }
 
 @app.get("/users")
 def read_users(db: Session = Depends(get_db)):
@@ -320,14 +327,15 @@ def read_users(db: Session = Depends(get_db)):
 @app.get("/user-details")
 def get_user_assignments(db: Session = Depends(get_db)):
     assignments = (
-        db.query(UserAssignment, User)
+        db.query(UserAssignment, User, PanelMaster)
         .join(User, User.user_id == UserAssignment.user_id)
+        .join(PanelMaster, PanelMaster.panel_id == UserAssignment.panel_id)
         .all()
     )
 
     user_map = {}
 
-    for assignment, user in assignments:
+    for assignment, user, panel in assignments:
         qr_base64 = base64.b64encode(assignment.qr_code).decode('utf-8') if assignment.qr_code else ""
 
         if user.user_id not in user_map:
@@ -340,7 +348,8 @@ def get_user_assignments(db: Session = Depends(get_db)):
             }
 
         user_map[user.user_id]["assignments"].append({
-            "panel_name": assignment.panel_name,
+            "panel_id": panel.panel_id,
+            "panel_name": panel.panel_name,
             "secret_code": assignment.secret_code,
             "qr_code_base64": qr_base64,
         })
@@ -384,34 +393,6 @@ def delete_user(user_id: int, db: Session = Depends(get_db)):
     db.commit()
     return {"message": f"User {user_id} deleted successfully"}
 
-#------ Panels ----------#
-@app.get("/panels")
-def get_panels_from_folders(str = Depends(verify_token)):
-    panels = []
-    for folder_name in os.listdir(PANEL_BASE_DIR):
-        full_path = os.path.join(PANEL_BASE_DIR, folder_name)
-        if os.path.isdir(full_path):
-            # Create deterministic short hash as panel_id
-            hash_bytes = hashlib.sha256(folder_name.encode()).digest()
-            short_id = base64.urlsafe_b64encode(hash_bytes[:6]).decode('utf-8').rstrip('=')
-
-            # Count files in the folder
-            file_names = [
-                f for f in os.listdir(full_path)
-                if os.path.isfile(os.path.join(full_path, f))
-            ]
-
-            panels.append({
-                "panel_id": short_id,
-                "panel_name": folder_name,
-                "panel_path": os.path.abspath(full_path),
-                "file_count": len(file_names),
-                "files": file_names
-            })
-
-    return panels
-
-# ------------------ Users ------------------
 @app.post("/users")
 def create_user(user: UserCreate, db: Session = Depends(get_db)):
     db_user = User(name=user.name,email_id=user.email_id,phone_number=user.phone_number)
@@ -428,7 +409,7 @@ def create_user(user: UserCreate, db: Session = Depends(get_db)):
         qr_code_bytes = generate_qr_code_bytes(file_url)
         db_assignment = UserAssignment(
             user_id=db_user.user_id,
-            panel_name=panel.panel_name,
+            panel_id=panel.panel_id,
             secret_code=secret_code,
             qr_code=qr_code_bytes
         )
@@ -454,21 +435,21 @@ def update_user(user_id: int, user_update: UserUpdate, db: Session = Depends(get
 
     # Get current & incoming panel names
     existing_assignments = db.query(UserAssignment).filter(UserAssignment.user_id == user.user_id).all()
-    existing_panel_names = {a.panel_name for a in existing_assignments}
-    new_panel_names = {p.panel_name for p in user_update.panels}
+    existing_panel_names = {a.panel_id for a in existing_assignments}
+    new_panel_names = {p.panel_id for p in user_update.panels}
 
     # Delete removed panels
     panels_to_delete = existing_panel_names - new_panel_names
     if panels_to_delete:
         db.query(UserAssignment).filter(
             UserAssignment.user_id == user_id,
-            UserAssignment.panel_name.in_(panels_to_delete)
+            UserAssignment.panel_id.in_(panels_to_delete)
         ).delete(synchronize_session=False)
 
     # Add new panels
     panels_to_add = new_panel_names - existing_panel_names
     for panel in user_update.panels:
-        if panel.panel_name in panels_to_add:
+        if panel.panel_id in panels_to_add:
             secret_code = generate_secret_code()
             encoded_str = base64.b64encode(secret_code.encode('utf-8')).decode('utf-8')
             file_url = f"{WEBAPP_URL}verify-secret-code/{encoded_str}"
@@ -476,7 +457,7 @@ def update_user(user_id: int, user_update: UserUpdate, db: Session = Depends(get
 
             db_assignment = UserAssignment(
                 user_id=user_id,
-                panel_name=panel.panel_name,
+                panel_id=panel.panel_id,
                 secret_code=secret_code,
                 qr_code=qr_code_bytes
             )
@@ -484,6 +465,195 @@ def update_user(user_id: int, user_update: UserUpdate, db: Session = Depends(get
 
     db.commit()
     return {"message": f"User {user_id} updated successfully", "user": user}
+
+
+
+# @app.post("/get-assigned-files", response_model=FilesDetail)
+# def login(request: GetFilesRequest, db: Session = Depends(get_db)):
+#     assignment_id = get_assignment_id_from_token(request.access_token)
+#     print(assignment_id)
+#     assignment = db.query(UserAssignment).filter(UserAssignment.user_assignment_id == assignment_id).first()
+#     if not assignment:
+#         raise HTTPException(status_code=401, detail="Expired or Invalid access")
+
+#     # Get files by panel ID
+#     file_records = db.query(FileMeta).filter(FileMeta.panel_id == assignment.panel_id).all()
+
+#     files = [
+#         {"file_meta_id": f.file_meta_id, "file_name": f.file_name}
+#         for f in file_records
+#     ]
+
+#     return {
+#         "user_assignment_id": assignment.user_assignment_id,
+#         "user_id": assignment.user_id,
+#         "files": files,
+#     }
+
+#### Verify Secret & View Files
+
+@app.post("/verify-secret/{secret_code}")
+def verify_secret(secret_code: str, db: Session = Depends(get_db)):
+    assignment = db.query(UserAssignment).filter_by(secret_code=secret_code).first()
+    if assignment and assignment.secret_code == secret_code:
+        user = db.query(User).filter_by(user_id=assignment.user_id).first()
+        access_token = create_access_token(data={"sub": user.name,"user_id":user.user_id,"assignment":assignment.user_assignment_id})
+        return {"status": "verified","access_token":access_token}
+    raise HTTPException(status_code=403, detail="Invalid secret code")
+
+@app.post("/get-assigned-files", response_model=FilesDetail)
+def get_assigned_files(request: GetFilesRequest, db: Session = Depends(get_db)):
+    assignment_data = (
+        db.query(UserAssignment, PanelMaster)
+        .join(PanelMaster, PanelMaster.panel_id == UserAssignment.panel_id)
+        .filter(UserAssignment.user_assignment_id == get_assignment_id_from_token(request.access_token))
+        .first()
+    )
+
+    if not assignment_data:
+        raise HTTPException(status_code=401, detail="Expired or Invalid access")
+
+    assignment, panel = assignment_data  # Unpack tuple properly
+
+    panel_folder = os.path.join(PANEL_BASE_DIR, panel.panel_name)
+
+    if not os.path.exists(panel_folder) or not os.path.isdir(panel_folder):
+        raise HTTPException(status_code=404, detail="Panel folder not found")
+
+    file_names = os.listdir(panel_folder)
+
+    files = [
+        {"file_meta_id": idx + 1, "file_name": f}
+        for idx, f in enumerate(file_names)
+        if os.path.isfile(os.path.join(panel_folder, f))
+    ]
+
+    return {
+        "user_assignment_id": assignment.user_assignment_id,
+        "user_id": assignment.user_id,
+        "files": files,
+        "panel_name": panel.panel_name  # Use panel name from PanelMaster
+    }
+
+
+# @app.post("/get-assigned-files", response_model=FilesDetail)
+# def get_assigned_files(request: GetFilesRequest, db: Session = Depends(get_db)):
+#     assignment_id = get_assignment_id_from_token(request.access_token)
+#     assignment = db.query(UserAssignment, PanelMaster).join(PanelMaster, PanelMaster.panel_id == UserAssignment.panel_id).filter(UserAssignment.user_assignment_id == assignment_id).first()
+    
+#     if not assignment:
+#         raise HTTPException(status_code=401, detail="Expired or Invalid access")
+
+#     panel_folder = os.path.join(PANEL_BASE_DIR, assignment.panel_name)
+
+#     if not os.path.exists(panel_folder) or not os.path.isdir(panel_folder):
+#         raise HTTPException(status_code=404, detail="Panel folder not found")
+
+#     file_names = os.listdir(panel_folder)
+
+#     files = [
+#         {"file_meta_id": idx + 1, "file_name": f}
+#         for idx, f in enumerate(file_names)
+#         if os.path.isfile(os.path.join(panel_folder, f))
+#     ]
+
+#     return {
+#         "user_assignment_id": assignment.user_assignment_id,
+#         "user_id": assignment.user_id,
+#         "files": files,
+#         "panel_name": assignment.panel_id
+#     }
+
+@app.get("/panel-files/{panel_id}", response_model=List[FileMetaResponse])
+def get_files_by_panel(panel_id: int, db: Session = Depends(get_db)):
+    files = db.query(FileMeta.file_meta_id, FileMeta.panel_id, FileMeta.file_name).filter(FileMeta.panel_id == panel_id).all()
+    if not files:
+        raise HTTPException(status_code=404, detail="No files found for this panel")
+    return files
+
+# @app.get("/view-file/{file_meta_id}")
+# def view_file(file_meta_id: int, db: Session = Depends(get_db)):
+#     file = db.query(FileMeta).filter(FileMeta.file_meta_id == file_meta_id).first()
+#     if not file:
+#         raise HTTPException(status_code=404, detail="File not found")
+
+#     return StreamingResponse(BytesIO(file.file_data), media_type="application/pdf", headers={
+#         "Content-Disposition": f"inline; filename={file.file_name}"
+#     })
+
+# @app.get("/view-file/{panel_name}/{file_name}")
+# def view_file(panel_name: str, file_name: str):
+#     file_path = os.path.join(PANEL_BASE_DIR, panel_name, file_name)
+
+#     if not os.path.exists(file_path) or not os.path.isfile(file_path):
+#         raise HTTPException(status_code=404, detail="File not found")
+
+#     file_stream = open(file_path, "rb")
+#     return StreamingResponse(file_stream, media_type="application/pdf", headers={
+#         "Content-Disposition": f"inline; filename={file_name}"
+#     })
+
+@app.get("/view-file/{panel_name}/{file_name}")
+def view_file(panel_name: str, file_name: str):
+    file_path = os.path.join(PANEL_BASE_DIR, panel_name, file_name)
+
+    if not os.path.exists(file_path) or not os.path.isfile(file_path):
+        raise HTTPException(status_code=404, detail="File not found")
+
+    file_size = os.path.getsize(file_path)  # Get the file size in bytes
+    file_stream = open(file_path, "rb")
+
+    return StreamingResponse(
+        file_stream,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f"inline; filename={file_name}",
+            "Content-Length": str(file_size),  # Add this line
+            "Access-Control-Expose-Headers": "Content-Length"  # Optional but important for frontend JS to read it
+        }
+    )
+    
+@app.get("/view-file1/{assignment_id}")
+def view_file(assignment_id: int, secret_code: str, db: Session = Depends(get_db)):
+    assignment = db.query(UserAssignment).filter_by(user_assignment_id=assignment_id).first()
+    if not assignment or assignment.secret_code != secret_code:
+        raise HTTPException(status_code=403, detail="Invalid secret code")
+
+    file_meta = db.query(FileMeta).filter_by(panel_id=assignment.panel_id).first()
+    if not file_meta:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    return StreamingResponse(BytesIO(file_meta.file_data), media_type="application/pdf", headers={"Content-Disposition": f"inline; filename={file_meta.file_name}"})
+
+
+
+
+
+
+@app.post("/user-assignment")
+def create_user_assignment(payload: UserAssignmentCreate, db: Session = Depends(get_db)):
+    secret_code = generate_secret_code()
+    # Proper base64 encoding of the secret code
+    encoded_bytes = base64.b64encode(secret_code.encode('utf-8'))
+    encoded_str = encoded_bytes.decode('utf-8')
+    file_url = f"{WEBAPP_URL}verify-secret-code/{encoded_str}"
+    qr_code_bytes = generate_qr_code_bytes(file_url)
+
+    assignment = UserAssignment(
+        user_id=payload.user_id,
+        panel_id=payload.panel_id,
+        secret_code=secret_code,
+        qr_code=qr_code_bytes,
+    )
+
+    db.add(assignment)
+    db.commit()
+    db.refresh(assignment)
+
+    return {
+        "user_assignment_id": assignment.user_assignment_id,
+        "secret_code": assignment.secret_code
+    }
 
     
 # ------------------ RUN ------------------

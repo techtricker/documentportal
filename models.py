@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String, ForeignKey, LargeBinary, DateTime
+from sqlalchemy import Boolean, create_engine, Column, Integer, String, ForeignKey, LargeBinary, DateTime
 from sqlalchemy.orm import relationship, sessionmaker, declarative_base
 from datetime import datetime
 from database import SessionLocal, Base, engine
@@ -17,6 +17,7 @@ class PanelMaster(Base):
     panel_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     panel_name = Column(String)
     description = Column(String)
+    is_deleted = Column(Boolean, default=False)
     file_meta = relationship("FileMeta", back_populates="panel")
 
 class FileMeta(Base):
@@ -24,7 +25,7 @@ class FileMeta(Base):
     file_meta_id = Column(Integer, primary_key=True, index=True)
     panel_id = Column(Integer, ForeignKey("panel_master.panel_id"))
     file_name = Column(String)
-    file_data = Column(LargeBinary)
+    is_deleted = Column(Boolean, default=False)
     panel = relationship("PanelMaster", back_populates="file_meta")
 
 class User(Base):
@@ -38,9 +39,9 @@ class UserAssignment(Base):
     __tablename__ = "user_assignment"
     user_assignment_id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.user_id"))
-    panel_name = Column(String)
     secret_code = Column(String)
     qr_code = Column(LargeBinary)
+    panel_id = Column(Integer)
 
 class UserScanLog(Base):
     __tablename__ = "user_scan_log"

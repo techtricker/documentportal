@@ -9,8 +9,16 @@
     "localdatabase": 
         {
             "server"      : "qrcode-app.cdc2auaa0ube.ap-south-1.rds.amazonaws.com",
-			"database"    : "qrcode_app",
+			"database"    : "qrcode_app_uat",
 			"user"        : "admin",
 			"password"    : "Mascot_2025"
+        },
+    "testdatabase": 
+        {
+            "server"      : "103.16.202.161",
+			"database"    : "qrapp_db",
+			"user"        : "qrapp_db_user",
+			"password"    : "qrapp@789",
+            "port"        : "3378"
         }
 }
