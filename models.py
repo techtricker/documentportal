@@ -20,8 +20,8 @@ class PortalUser(Base):
 class PanelMaster(Base):
     __tablename__ = "panel_master"
     panel_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    panel_name = Column(String)
-    description = Column(String)
+    panel_name = Column(String(255))
+    description = Column(String(1000))
     is_deleted = Column(Boolean, default=False)
     file_meta = relationship("FileMeta", back_populates="panel")
 
@@ -29,22 +29,22 @@ class FileMeta(Base):
     __tablename__ = "file_meta"
     file_meta_id = Column(Integer, primary_key=True, index=True)
     panel_id = Column(Integer, ForeignKey("panel_master.panel_id"))
-    file_name = Column(String)
+    file_name = Column(String(255))
     is_deleted = Column(Boolean, default=False)
     panel = relationship("PanelMaster", back_populates="file_meta")
 
 class User(Base):
     __tablename__ = "users"
     user_id = Column(Integer, primary_key=True, index=True)
-    name = Column(String)
-    email_id = Column(String)
-    phone_number = Column(String)
+    name = Column(String(255))
+    email_id = Column(String(255))
+    phone_number = Column(String(20))
 
 class UserAssignment(Base):
     __tablename__ = "user_assignment"
     user_assignment_id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.user_id"))
-    secret_code = Column(String)
+    secret_code = Column(String(255))
     qr_code = Column(LargeBinary)
     panel_id = Column(Integer)
 
@@ -53,7 +53,7 @@ class UserScanLog(Base):
     log_id = Column(Integer, primary_key=True, index=True)
     user_assignment_id = Column(Integer, ForeignKey("user_assignment.user_assignment_id"))
     scan_datetime = Column(DateTime)
-    verification_status = Column(String)  # e.g., 'success', 'failed'
+    verification_status = Column(String(100))  # e.g., 'success', 'failed'
 
 
 Base.metadata.create_all(bind=engine)
