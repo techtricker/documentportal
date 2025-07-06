@@ -268,7 +268,7 @@ def manual_sync(db: Session = Depends(get_db)):
 ## str = Depends(verify_token)
 
 @app.get("/panels")
-def get_panels(db: Session = Depends(get_db)):
+def get_panels(db: Session = Depends(get_db), str = Depends(verify_token)):
     panels = []
 
     # Fetch all active (non-deleted) panels
