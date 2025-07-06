@@ -135,6 +135,11 @@ class PanelUpdate(BaseModel):
 #     email_id: str
 #     phone_number: str
 
+class ScanLogRequest(BaseModel):
+    user_assignment_id: int
+    secret_code: str
+    verification_status: str
+
 # ------------------ Secret Code Generation ------------------
 def generate_secret_code(length: int = 8) -> str:
     alphabet = string.ascii_letters + string.digits
@@ -492,13 +497,51 @@ def update_user(user_id: int, user_update: UserUpdate, db: Session = Depends(get
 
 #### Verify Secret & View Files
 
+@app.post("/user-scan-log")
+def log_scan(request: ScanLogRequest, db: Session = Depends(get_db)):
+    assignment = db.query(UserAssignment).filter_by(secret_code=request.secret_code).first()
+    scan_log = UserScanLog(
+        user_assignment_id=assignment.user_assignment_id,
+        scan_datetime=datetime.utcnow,
+        verification_status=request.verification_status
+    )
+    db.add(scan_log)
+    db.commit()
+    return {"message": "Scan log saved"}
+    # userAssignId = request.user_assignment_id
+    # if assignment:
+    #     userAssignId = assignment.user_assignment_id
+    
+    # if userAssignId != 0:
+    #     scan_log = UserScanLog(
+    #         user_assignment_id=request.user_assignment_id,
+    #         verification_status=request.verification_status
+    #     )
+    #     db.add(scan_log)
+    #     db.commit()
+    #     return {"message": "Scan log saved"}
+    # raise HTTPException(status_code=500, detail="Internal Server Error")
+
 @app.post("/verify-secret/{secret_code}")
 def verify_secret(secret_code: str, db: Session = Depends(get_db)):
     assignment = db.query(UserAssignment).filter_by(secret_code=secret_code).first()
     if assignment and assignment.secret_code == secret_code:
         user = db.query(User).filter_by(user_id=assignment.user_id).first()
         access_token = create_access_token(data={"sub": user.name,"user_id":user.user_id,"assignment":assignment.user_assignment_id})
+        scan_log = UserScanLog(
+            user_assignment_id=assignment.user_assignment_id,
+            verification_status="1"
+        )
+        db.add(scan_log)
+        db.commit()
         return {"status": "verified","access_token":access_token}
+    else:
+        scan_log = UserScanLog(
+            user_assignment_id=assignment.user_assignment_id,
+            verification_status="2"
+        )
+        db.add(scan_log)
+        db.commit()
     raise HTTPException(status_code=403, detail="Invalid secret code")
 
 @app.post("/get-assigned-files", response_model=FilesDetail)

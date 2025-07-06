@@ -2,7 +2,12 @@ from sqlalchemy import Boolean, create_engine, Column, Integer, String, ForeignK
 from sqlalchemy.orm import relationship, sessionmaker, declarative_base
 from datetime import datetime
 from database import SessionLocal, Base, engine
+import pytz
 
+IST = pytz.timezone("Asia/Kolkata")
+
+def get_ist_datetime():
+    return datetime.now(IST)
 
 # ------------------ MODELS ------------------
 
@@ -47,6 +52,8 @@ class UserScanLog(Base):
     __tablename__ = "user_scan_log"
     log_id = Column(Integer, primary_key=True, index=True)
     user_assignment_id = Column(Integer, ForeignKey("user_assignment.user_assignment_id"))
-    scan_datetime = Column(DateTime, default=datetime.utcnow)
+    scan_datetime = Column(DateTime)
+    verification_status = Column(String)  # e.g., 'success', 'failed'
+
 
 Base.metadata.create_all(bind=engine)
