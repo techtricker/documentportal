@@ -20,5 +20,14 @@
 			"user"        : "qrapp_db_user",
 			"password"    : "qrapp@789",
             "port"        : "3378"
+        },
+    "development": 
+        {
+            "server"      : "127.0.0.1",
+			"database"    : "qrapp_db",
+			"user"        : "root",
+			"password"    : "password",
+            "port"        : "3306"
         }
+        
 }
