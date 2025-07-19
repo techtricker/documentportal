@@ -235,7 +235,7 @@ def sync_panels_and_files(db: Session):
 #### Panel APIs
 
 @app.get("/sync-panels-manually")
-def manual_sync(db: Session = Depends(get_db)):
+def manual_sync(db: Session = Depends(get_db), str = Depends(verify_token)):
     sync_panels_and_files(db)
     return {"message": "Panels and files synced successfully"}
 
@@ -306,6 +306,7 @@ def get_panels(db: Session = Depends(get_db), str = Depends(verify_token)):
 
 @app.post("/login", response_model=TokenResponse)
 def login(request: LoginRequest, db: Session = Depends(get_db)):
+    
     user = db.query(PortalUser).filter(PortalUser.portal_user_name == request.portal_user_name).first()
     if not user or not verify_password(request.password, user.password):
         raise HTTPException(status_code=401, detail="Invalid username or password")
@@ -317,7 +318,7 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
 #### Application APIs
 
 @app.get("/admin-dashboard")
-def get_dashboard_summary(db: Session = Depends(get_db)):
+def get_dashboard_summary(db: Session = Depends(get_db), str = Depends(verify_token)):
     result = db.execute(text("SELECT metrics_json FROM dashboard_summary_view")).fetchone()
     return {"dashboard": result[0]}
 
@@ -330,7 +331,7 @@ def read_users(db: Session = Depends(get_db)):
     return db.query(User).all()
 
 @app.get("/user-details")
-def get_user_assignments(db: Session = Depends(get_db)):
+def get_user_assignments(db: Session = Depends(get_db), str = Depends(verify_token)):
     assignments = (
         db.query(UserAssignment, User, PanelMaster)
         .join(User, User.user_id == UserAssignment.user_id)
@@ -386,7 +387,7 @@ def get_user_assignments(db: Session = Depends(get_db)):
 #     return results
 
 @app.delete("/users/{user_id}")
-def delete_user(user_id: int, db: Session = Depends(get_db)):
+def delete_user(user_id: int, db: Session = Depends(get_db), str = Depends(verify_token)):
     user = db.query(User).filter(User.user_id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -399,7 +400,7 @@ def delete_user(user_id: int, db: Session = Depends(get_db)):
     return {"message": f"User {user_id} deleted successfully"}
 
 @app.post("/users")
-def create_user(user: UserCreate, db: Session = Depends(get_db)):
+def create_user(user: UserCreate, db: Session = Depends(get_db), str = Depends(verify_token)):
     db_user = User(name=user.name,email_id=user.email_id,phone_number=user.phone_number)
     db.add(db_user)
     db.commit()
@@ -426,7 +427,7 @@ def create_user(user: UserCreate, db: Session = Depends(get_db)):
 
 
 @app.put("/users/{user_id}")
-def update_user(user_id: int, user_update: UserUpdate, db: Session = Depends(get_db)):
+def update_user(user_id: int, user_update: UserUpdate, db: Session = Depends(get_db), str = Depends(verify_token)):
     user = db.query(User).filter(User.user_id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -498,7 +499,7 @@ def update_user(user_id: int, user_update: UserUpdate, db: Session = Depends(get
 #### Verify Secret & View Files
 
 @app.post("/user-scan-log")
-def log_scan(request: ScanLogRequest, db: Session = Depends(get_db)):
+def log_scan(request: ScanLogRequest, db: Session = Depends(get_db), str = Depends(verify_token)):
     assignment = db.query(UserAssignment).filter_by(secret_code=request.secret_code).first()
     scan_log = UserScanLog(
         user_assignment_id=assignment.user_assignment_id,
@@ -523,7 +524,7 @@ def log_scan(request: ScanLogRequest, db: Session = Depends(get_db)):
     # raise HTTPException(status_code=500, detail="Internal Server Error")
 
 @app.post("/verify-secret/{secret_code}")
-def verify_secret(secret_code: str, db: Session = Depends(get_db)):
+def verify_secret(secret_code: str, db: Session = Depends(get_db), str = Depends(verify_token)):
     assignment = db.query(UserAssignment).filter_by(secret_code=secret_code).first()
     if assignment and assignment.secret_code == secret_code:
         user = db.query(User).filter_by(user_id=assignment.user_id).first()
@@ -545,7 +546,7 @@ def verify_secret(secret_code: str, db: Session = Depends(get_db)):
     raise HTTPException(status_code=403, detail="Invalid secret code")
 
 @app.post("/get-assigned-files", response_model=FilesDetail)
-def get_assigned_files(request: GetFilesRequest, db: Session = Depends(get_db)):
+def get_assigned_files(request: GetFilesRequest, db: Session = Depends(get_db), str = Depends(verify_token)):
     assignment_data = (
         db.query(UserAssignment, PanelMaster)
         .join(PanelMaster, PanelMaster.panel_id == UserAssignment.panel_id)
@@ -608,7 +609,7 @@ def get_assigned_files(request: GetFilesRequest, db: Session = Depends(get_db)):
 #     }
 
 @app.get("/panel-files/{panel_id}", response_model=List[FileMetaResponse])
-def get_files_by_panel(panel_id: int, db: Session = Depends(get_db)):
+def get_files_by_panel(panel_id: int, db: Session = Depends(get_db), str = Depends(verify_token)):
     files = db.query(FileMeta.file_meta_id, FileMeta.panel_id, FileMeta.file_name).filter(FileMeta.panel_id == panel_id).all()
     if not files:
         raise HTTPException(status_code=404, detail="No files found for this panel")
@@ -637,7 +638,7 @@ def get_files_by_panel(panel_id: int, db: Session = Depends(get_db)):
 #     })
 
 @app.get("/view-file/{panel_name}/{file_name}")
-def view_file(panel_name: str, file_name: str):
+def view_file(panel_name: str, file_name: str, str1 = Depends(verify_token)):
     file_path = os.path.join(PANEL_BASE_DIR, panel_name, file_name)
 
     if not os.path.exists(file_path) or not os.path.isfile(file_path):
@@ -657,7 +658,7 @@ def view_file(panel_name: str, file_name: str):
     )
     
 @app.get("/view-file1/{assignment_id}")
-def view_file(assignment_id: int, secret_code: str, db: Session = Depends(get_db)):
+def view_file(assignment_id: int, secret_code: str, db: Session = Depends(get_db), str = Depends(verify_token)):
     assignment = db.query(UserAssignment).filter_by(user_assignment_id=assignment_id).first()
     if not assignment or assignment.secret_code != secret_code:
         raise HTTPException(status_code=403, detail="Invalid secret code")
@@ -674,7 +675,7 @@ def view_file(assignment_id: int, secret_code: str, db: Session = Depends(get_db
 
 
 @app.post("/user-assignment")
-def create_user_assignment(payload: UserAssignmentCreate, db: Session = Depends(get_db)):
+def create_user_assignment(payload: UserAssignmentCreate, db: Session = Depends(get_db), str = Depends(verify_token)):
     secret_code = generate_secret_code()
     # Proper base64 encoding of the secret code
     encoded_bytes = base64.b64encode(secret_code.encode('utf-8'))
