@@ -18,7 +18,7 @@ config_path = '/'.join([ROOT_DIR, 'config.json'])
 # read json file
 with open(config_path) as config_file:
     config = json.load(config_file)
-    sql_config = config['localdatabase']
+    sql_config = config['localdatabase']  # Change to 'production' for production settings
 
 
 SQL_server = sql_config['server']
