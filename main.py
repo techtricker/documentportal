@@ -1,15 +1,16 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends
+import hmac
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import create_engine, Column, Integer, String, ForeignKey, LargeBinary, DateTime, text
 from sqlalchemy.orm import sessionmaker, relationship, declarative_base, Session
-from datetime import datetime
+from datetime import datetime, timedelta
 from io import BytesIO
 import uvicorn
 from database import SessionLocal, Base, engine
 from pydantic import BaseModel
 from fastapi.security import OAuth2PasswordRequestForm
-from models import PanelMaster, PortalUser, FileMeta, User, UserAssignment, UserScanLog
+from models import OtpChallenge, PanelMaster, PortalUser, FileMeta, User, UserAssignment, UserScanLog
 from auth import verify_token, verify_password, create_access_token, get_password_hash, get_assignment_id_from_token
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List
@@ -19,17 +20,23 @@ import qrcode
 import base64
 import os
 import hashlib
+from emailer import send_email
+from otp_email import otp_email_html, otp_email_text
 
 app = FastAPI()
 
 # Add this CORS configuration
 origins = [
     "http://localhost:3000",  # React app
-    "http://document-portal-tt.s3-website.ap-south-1.amazonaws.com"
+    "https://qr.hertzelectricals.in"
 ]
 
-PANEL_BASE_DIR = "../panels"
-WEBAPP_URL = "http://localhost:3000/#/"
+# PANEL_BASE_DIR = "../panels"
+# WEBAPP_URL = "http://localhost:3000/#/"
+PANEL_BASE_DIR = "/home/qrhertz/panels"
+WEBAPP_URL = "https://qr.hertzelectricals.in/#/"
+OTP_TTL_SECONDS = 180  # 3 minutes
+OTP_MAX_ATTEMPTS = 5
 
 app.add_middleware(
     CORSMiddleware,
@@ -140,6 +147,22 @@ class ScanLogRequest(BaseModel):
     secret_code: str
     verification_status: str
 
+class QrInitiateRequest(BaseModel):
+    encoded_secret: str  # you already have this in the QR
+
+class QrInitiateResponse(BaseModel):
+    session_id: str
+    delivery_channel: str = "email"  # or "sms"
+    masked_destination: str = ""     # e.g., r***@domain.com
+
+class VerifyOtpRequest(BaseModel):
+    session_id: str
+    otp: str
+
+class VerifyOtpResponse(BaseModel):
+    access_token: str
+
+
 # ------------------ Secret Code Generation ------------------
 def generate_secret_code(length: int = 8) -> str:
     alphabet = string.ascii_letters + string.digits
@@ -163,7 +186,19 @@ def get_db():
     finally:
         db.close()
 
-# ------------------ ENDPOINTS ------------------
+# ------------------ Helpers ------------------
+def _hash_otp(otp: str) -> str:
+    # Fast hash is fine here; you can use HMAC with a server secret if you prefer
+    return hashlib.sha256(otp.encode("utf-8")).hexdigest()
+
+def _generate_otp() -> str:
+    # 6-digit numeric OTP, no leading zero bias
+    return f"{secrets.randbelow(900000) + 100000}"
+
+def _mask_email(email: str) -> str:
+    if not email or "@" not in email: return ""
+    name, dom = email.split("@", 1)
+    return (name[:1] + "***@" + dom)
 
 # ------------------ Functions ------------------
 def sync_panels_and_files(db: Session):
@@ -232,6 +267,118 @@ def sync_panels_and_files(db: Session):
 
 #------------------- APIs -------------------------
 
+@app.post("/qr/verify-otp", response_model=VerifyOtpResponse)
+def qr_verify_otp(payload: VerifyOtpRequest, db: Session = Depends(get_db)):
+    # unwrap session
+    try:
+        otp_id = int(base64.urlsafe_b64decode(payload.session_id.encode()).decode())
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid session")
+
+    challenge = db.query(OtpChallenge).filter(OtpChallenge.otp_id == otp_id).first()
+    if not challenge:
+        raise HTTPException(status_code=400, detail="Session not found")
+
+    # basic checks
+    if challenge.consumed:
+        raise HTTPException(status_code=400, detail="Session already used")
+    if datetime.utcnow() > challenge.expires_at:
+        raise HTTPException(status_code=400, detail="OTP expired")
+    if challenge.attempts >= challenge.max_attempts:
+        raise HTTPException(status_code=429, detail="Too many attempts")
+
+    # verify
+    challenge.attempts += 1
+    if not hmac.compare_digest(challenge.otp_hash, _hash_otp(payload.otp)):
+        db.commit()
+        raise HTTPException(status_code=401, detail="Invalid OTP")
+
+    # success: consume challenge, issue access token
+    challenge.consumed = True
+    db.commit()
+
+    assignment = db.query(UserAssignment).filter(
+        UserAssignment.user_assignment_id == challenge.user_assignment_id
+    ).first()
+    if not assignment:
+        raise HTTPException(status_code=500, detail="Assignment missing")
+
+    user = db.query(User).filter(User.user_id == assignment.user_id).first()
+
+    # your existing token pattern
+    token = create_access_token(
+        data={"sub": user.name, "user_id": user.user_id, "assignment": assignment.user_assignment_id}
+    )
+
+    # log successful verification
+    db.add(UserScanLog(
+        user_assignment_id=assignment.user_assignment_id,
+        scan_datetime=datetime.utcnow(),    # <-- fix: call the function
+        verification_status="otp_verified"
+    ))
+    db.commit()
+
+    return VerifyOtpResponse(access_token=token)
+
+@app.post("/qr/initiate", response_model=QrInitiateResponse)
+def qr_initiate(
+    payload: QrInitiateRequest,
+    background: BackgroundTasks,
+    db: Session = Depends(get_db)
+):
+    # Decode secret from QR
+    try:
+        secret_code = base64.b64decode(payload.encoded_secret).decode("utf-8")
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid secret")
+
+    # Find assignment
+    assignment = db.query(UserAssignment).filter_by(secret_code=secret_code).first()
+    if not assignment:
+        raise HTTPException(status_code=403, detail="Invalid secret")
+
+    # Log initiation
+    db.add(UserScanLog(
+        user_assignment_id=assignment.user_assignment_id,
+        scan_datetime=datetime.utcnow(),
+        verification_status="qr_initiated"
+    ))
+    db.commit()
+
+    # Create OTP challenge
+    otp = _generate_otp()
+    challenge = OtpChallenge(
+        user_assignment_id=assignment.user_assignment_id,
+        otp_hash=_hash_otp(otp),
+        expires_at=datetime.utcnow() + timedelta(seconds=OTP_TTL_SECONDS),
+        attempts=0,
+        max_attempts=OTP_MAX_ATTEMPTS,
+        consumed=False,
+        created_at=datetime.utcnow(),
+    )
+    db.add(challenge)
+    db.commit()
+    db.refresh(challenge)
+
+    # Prepare async email
+    user = db.query(User).filter(User.user_id == assignment.user_id).first()
+    if not user or not user.email_id:
+        raise HTTPException(status_code=400, detail="User email not available")
+
+    subject = "Your OTP for Panel Portal"
+    html_body = otp_email_html(otp, user_name=getattr(user, "name", None))
+    text_body = otp_email_text(otp, user_name=getattr(user, "name", None))
+
+    background.add_task(send_email, user.email_id, subject, html_body, text_body)
+
+    # Return session
+    session_id = base64.urlsafe_b64encode(str(challenge.otp_id).encode()).decode()
+    return QrInitiateResponse(
+        session_id=session_id,
+        delivery_channel="email",
+        masked_destination=_mask_email(user.email_id),
+    )
+
 #### Panel APIs
 
 @app.get("/sync-panels-manually")
@@ -270,6 +417,7 @@ def manual_sync(db: Session = Depends(get_db), str = Depends(verify_token)):
 @app.get("/panels")
 def get_panels(db: Session = Depends(get_db), str = Depends(verify_token)):
     panels = []
+    sync_panels_and_files(db)
 
     # Fetch all active (non-deleted) panels
     db_panels = db.query(PanelMaster).filter(PanelMaster.is_deleted == False).all()
@@ -319,6 +467,7 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
 
 @app.get("/admin-dashboard")
 def get_dashboard_summary(db: Session = Depends(get_db), str = Depends(verify_token)):
+    sync_panels_and_files(db)
     result = db.execute(text("SELECT metrics_json FROM dashboard_summary_view")).fetchone()
     return {"dashboard": result[0]}
 
@@ -328,6 +477,7 @@ def get_dashboard_summary(db: Session = Depends(get_db), str = Depends(verify_to
 
 @app.get("/users")
 def read_users(db: Session = Depends(get_db)):
+    sync_panels_and_files(db)
     return db.query(User).all()
 
 @app.get("/user-details")

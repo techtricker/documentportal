@@ -8,10 +8,10 @@
         },
     "localdatabase": 
         {
-            "server"      : "qrcode-app.cdc2auaa0ube.ap-south-1.rds.amazonaws.com",
-			"database"    : "qrcode_app_uat",
-			"user"        : "admin",
-			"password"    : "Mascot_2025"
+            "server"      : "localhost",
+			"database"    : "qrcode",
+			"user"        : "root",
+			"password"    : "1234"
         },
     "testdatabase": 
         {
