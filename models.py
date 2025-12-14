@@ -43,10 +43,18 @@ class User(Base):
 class UserAssignment(Base):
     __tablename__ = "user_assignment"
     user_assignment_id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.user_id"))
     secret_code = Column(String(255))
     qr_code = Column(LargeBinary)
-    panel_id = Column(Integer)
+    user_id = Column(Integer, nullable=True)
+    panel_id = Column(Integer, ForeignKey("panel_master.panel_id"))
+    # NEW (for panel-level access)
+    visitor_name = Column(String(100), nullable=True)
+    visitor_email = Column(String(150), nullable=True)
+    visitor_phone = Column(String(20), nullable=True)
+    is_temporary = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 
 class UserScanLog(Base):
     __tablename__ = "user_scan_log"
@@ -54,6 +62,7 @@ class UserScanLog(Base):
     user_assignment_id = Column(Integer, ForeignKey("user_assignment.user_assignment_id"))
     scan_datetime = Column(DateTime)
     verification_status = Column(String(100))  # e.g., 'success', 'failed'
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 class OtpChallenge(Base):
     __tablename__ = "otp_challenge"

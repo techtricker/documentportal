@@ -11,7 +11,7 @@ from database import SessionLocal, Base, engine
 from pydantic import BaseModel
 from fastapi.security import OAuth2PasswordRequestForm
 from models import OtpChallenge, PanelMaster, PortalUser, FileMeta, User, UserAssignment, UserScanLog
-from auth import verify_token, verify_password, create_access_token, get_password_hash, get_assignment_id_from_token
+from auth import get_panel_id_from_token, verify_token, verify_password, create_access_token, get_password_hash, get_assignment_id_from_token, verify_token_qr_scan
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List
 import secrets
@@ -31,12 +31,13 @@ origins = [
     "https://qr.hertzelectricals.in"
 ]
 
-# PANEL_BASE_DIR = "../panels"
-# WEBAPP_URL = "http://localhost:3000/#/"
-PANEL_BASE_DIR = "/home/qrhertz/panels"
-WEBAPP_URL = "https://qr.hertzelectricals.in/#/"
+PANEL_BASE_DIR = "../panels"
+WEBAPP_URL = "http://localhost:3000/#/"
+#PANEL_BASE_DIR = "/home/qrhertz/panels"
+#WEBAPP_URL = "https://qr.hertzelectricals.in/#/"
 OTP_TTL_SECONDS = 180  # 3 minutes
 OTP_MAX_ATTEMPTS = 5
+SECRET_KEY = b"panel-secret-key-qr-code-hertz"
 
 app.add_middleware(
     CORSMiddleware,
@@ -62,8 +63,6 @@ class FileInfo(BaseModel):
     file_name: str
 
 class FilesDetail(BaseModel):
-    user_assignment_id: int
-    user_id: int
     panel_name: str
     files: List[FileInfo]
 
@@ -162,6 +161,27 @@ class VerifyOtpRequest(BaseModel):
 class VerifyOtpResponse(BaseModel):
     access_token: str
 
+class PanelAccessInitiate(BaseModel):
+    panel_token: str
+    name: str
+    email: str
+    phone: str
+
+
+class PanelAccessInitiateResponse(BaseModel):
+    session_id: str
+    delivery_channel: str = "email"
+    masked_destination: str
+
+
+class PanelAccessVerifyOtp(BaseModel):
+    session_id: str
+    otp: str
+
+
+class PanelAccessVerifyOtpResponse(BaseModel):
+    access_token: str
+
 
 # ------------------ Secret Code Generation ------------------
 def generate_secret_code(length: int = 8) -> str:
@@ -199,6 +219,7 @@ def _mask_email(email: str) -> str:
     if not email or "@" not in email: return ""
     name, dom = email.split("@", 1)
     return (name[:1] + "***@" + dom)
+
 
 # ------------------ Functions ------------------
 def sync_panels_and_files(db: Session):
@@ -695,39 +716,122 @@ def verify_secret(secret_code: str, db: Session = Depends(get_db), str = Depends
         db.commit()
     raise HTTPException(status_code=403, detail="Invalid secret code")
 
+# @app.post("/get-assigned-files", response_model=FilesDetail)
+# def get_assigned_files(request: GetFilesRequest, db: Session = Depends(get_db), str = Depends(verify_token)):
+#     assignment_data = (
+#         db.query(UserAssignment, PanelMaster)
+#         .join(PanelMaster, PanelMaster.panel_id == UserAssignment.panel_id)
+#         .filter(UserAssignment.user_assignment_id == get_assignment_id_from_token(request.access_token))
+#         .first()
+#     )
+
+#     if not assignment_data:
+#         raise HTTPException(status_code=401, detail="Expired or Invalid access")
+
+#     assignment, panel = assignment_data  # Unpack tuple properly
+
+#     panel_folder = os.path.join(PANEL_BASE_DIR, panel.panel_name)
+
+#     if not os.path.exists(panel_folder) or not os.path.isdir(panel_folder):
+#         raise HTTPException(status_code=404, detail="Panel folder not found")
+
+#     file_names = os.listdir(panel_folder)
+
+#     files = [
+#         {"file_meta_id": idx + 1, "file_name": f}
+#         for idx, f in enumerate(file_names)
+#         if os.path.isfile(os.path.join(panel_folder, f))
+#     ]
+
+#     return {
+#         "user_assignment_id": assignment.user_assignment_id,
+#         "user_id": assignment.user_id,
+#         "files": files,
+#         "panel_name": panel.panel_name  # Use panel name from PanelMaster
+#     }
+
 @app.post("/get-assigned-files", response_model=FilesDetail)
-def get_assigned_files(request: GetFilesRequest, db: Session = Depends(get_db), str = Depends(verify_token)):
-    assignment_data = (
-        db.query(UserAssignment, PanelMaster)
-        .join(PanelMaster, PanelMaster.panel_id == UserAssignment.panel_id)
-        .filter(UserAssignment.user_assignment_id == get_assignment_id_from_token(request.access_token))
-        .first()
-    )
+def get_assigned_files(
+    request: GetFilesRequest,
+    db: Session = Depends(get_db),
+    token=Depends(verify_token_qr_scan)
+):
 
-    if not assignment_data:
-        raise HTTPException(status_code=401, detail="Expired or Invalid access")
+    panel_id = get_panel_id_from_token(request.access_token)
+    assignment_id = get_assignment_id_from_token(request.access_token)
 
-    assignment, panel = assignment_data  # Unpack tuple properly
+    panel = db.query(PanelMaster).filter(
+        PanelMaster.panel_id == panel_id,
+        PanelMaster.is_deleted == False
+    ).first()
 
-    panel_folder = os.path.join(PANEL_BASE_DIR, panel.panel_name)
+    if not panel:
+        raise HTTPException(status_code=401, detail="Invalid session")
 
-    if not os.path.exists(panel_folder) or not os.path.isdir(panel_folder):
-        raise HTTPException(status_code=404, detail="Panel folder not found")
-
-    file_names = os.listdir(panel_folder)
+    panel_path = os.path.join(PANEL_BASE_DIR, panel.panel_name)
 
     files = [
         {"file_meta_id": idx + 1, "file_name": f}
-        for idx, f in enumerate(file_names)
-        if os.path.isfile(os.path.join(panel_folder, f))
+        for idx, f in enumerate(os.listdir(panel_path))
+        if os.path.isfile(os.path.join(panel_path, f))
     ]
 
+    # Optional: log file access
+    if assignment_id:
+        db.add(UserScanLog(
+            user_assignment_id=assignment_id,
+            verification_status="files_viewed",
+            scan_datetime=datetime.utcnow()
+        ))
+        db.commit()
+
     return {
-        "user_assignment_id": assignment.user_assignment_id,
-        "user_id": assignment.user_id,
-        "files": files,
-        "panel_name": panel.panel_name  # Use panel name from PanelMaster
+        "panel_name": panel.panel_name,
+        "files": files
     }
+
+# @app.post("/get-assigned-files", response_model=FilesDetail)
+# def get_assigned_files(
+#     db: Session = Depends(get_db),
+#     payload: dict = Depends(verify_token_qr_scan)
+# ):
+#     panel_id = payload.get("panel_id")
+
+#     panel = db.query(PanelMaster).filter(
+#         PanelMaster.panel_id == panel_id,
+#         PanelMaster.is_deleted == False
+#     ).first()
+
+#     if not panel:
+#         raise HTTPException(status_code=404, detail="Panel not found")
+
+#     panel_path = os.path.join(PANEL_BASE_DIR, panel.panel_name)
+
+#     if not os.path.exists(panel_path):
+#         raise HTTPException(status_code=404, detail="Panel folder not found")
+
+#     files = [
+#         {"file_meta_id": idx + 1, "file_name": f}
+#         for idx, f in enumerate(os.listdir(panel_path))
+#         if os.path.isfile(os.path.join(panel_path, f))
+#     ]
+
+#     # Optional: log file access
+#     assignment_id = payload.get("assignment_id")
+#     if assignment_id:
+#         db.add(UserScanLog(
+#             user_assignment_id=assignment_id,
+#             verification_status="files_viewed",
+#             scan_datetime=datetime.utcnow()
+#         ))
+#         db.commit()
+
+#     return {
+#         "panel_name": panel.panel_name,
+#         "files": files
+#     }
+
+
 
 
 # @app.post("/get-assigned-files", response_model=FilesDetail)
@@ -849,7 +953,175 @@ def create_user_assignment(payload: UserAssignmentCreate, db: Session = Depends(
         "secret_code": assignment.secret_code
     }
 
-    
+
+def generate_panel_qr(panel_id: int) -> bytes:
+    url = f"{WEBAPP_URL}panel-access/{panel_id}"
+    return generate_qr_code_bytes(url)
+
+@app.post("/panel-access/initiate")
+def panel_access_initiate(
+    payload: PanelAccessInitiate,
+    background: BackgroundTasks,
+    db: Session = Depends(get_db)
+):
+    # Decode panel token → panel_id
+    try:
+        panel_id = decode_panel_id(payload.panel_token)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid or tampered QR code")
+
+    # Validate panel
+    panel = db.query(PanelMaster).filter(
+        PanelMaster.panel_id == panel_id,
+        PanelMaster.is_deleted == False
+    ).first()
+
+    if not panel:
+        raise HTTPException(status_code=404, detail="Panel not found")
+
+    # Create temporary assignment
+    assignment = UserAssignment(
+        panel_id=panel_id,
+        visitor_name=payload.name,
+        visitor_email=payload.email,
+        visitor_phone=payload.phone,
+        is_temporary=True,
+    )
+    db.add(assignment)
+    db.commit()
+    db.refresh(assignment)
+
+    # Generate OTP
+    otp = _generate_otp()
+    challenge = OtpChallenge(
+        user_assignment_id=assignment.user_assignment_id,
+        otp_hash=_hash_otp(otp),
+        expires_at=datetime.utcnow() + timedelta(seconds=OTP_TTL_SECONDS),
+        attempts=0,
+        max_attempts=OTP_MAX_ATTEMPTS,
+        consumed=False,
+    )
+    db.add(challenge)
+    db.commit()
+    db.refresh(challenge)
+
+    # Send OTP
+    background.add_task(
+        send_email,
+        payload.email,
+        "Your OTP for Document Access",
+        otp_email_html(otp, payload.name),
+        otp_email_text(otp, payload.name),
+    )
+
+    session_id = base64.urlsafe_b64encode(
+        str(challenge.otp_id).encode()
+    ).decode()
+
+    return {
+        "session_id": session_id,
+        "masked_destination": _mask_email(payload.email),
+    }
+
+
+
+@app.post("/panel-access/verify-otp", response_model=PanelAccessVerifyOtpResponse)
+def panel_access_verify_otp(
+    payload: PanelAccessVerifyOtp,
+    db: Session = Depends(get_db)
+):
+    try:
+        otp_id = int(base64.urlsafe_b64decode(payload.session_id).decode())
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid session")
+
+    challenge = db.query(OtpChallenge).filter(
+        OtpChallenge.otp_id == otp_id
+    ).first()
+
+    if not challenge:
+        raise HTTPException(status_code=400, detail="Session not found")
+
+    if challenge.consumed:
+        raise HTTPException(status_code=400, detail="OTP already used")
+
+    if datetime.utcnow() > challenge.expires_at:
+        raise HTTPException(status_code=400, detail="OTP expired")
+
+    if challenge.attempts >= challenge.max_attempts:
+        raise HTTPException(status_code=429, detail="Too many attempts")
+
+    challenge.attempts += 1
+
+    if not hmac.compare_digest(challenge.otp_hash, _hash_otp(payload.otp)):
+        db.commit()
+        raise HTTPException(status_code=401, detail="Invalid OTP")
+
+    # Success
+    challenge.consumed = True
+    db.commit()
+
+    assignment = db.query(UserAssignment).filter(
+        UserAssignment.user_assignment_id == challenge.user_assignment_id
+    ).first()
+
+    token = create_access_token(data={
+        "assignment": assignment.user_assignment_id,
+        "panel_id": assignment.panel_id,
+        "type": "panel_access",
+        "sub": str(assignment.panel_id)
+    })
+
+    db.add(UserScanLog(
+        user_assignment_id=assignment.user_assignment_id,
+        verification_status="otp_verified",
+        scan_datetime=datetime.utcnow()
+    ))
+    db.commit()
+
+    return {"access_token": token}
+
+
+def encode_panel_id(panel_id: int) -> str:
+    msg = str(panel_id).encode()
+    sig = hmac.new(SECRET_KEY, msg, hashlib.sha256).digest()[:6]
+    token = base64.urlsafe_b64encode(msg + sig).decode().rstrip("=")
+    return token
+
+def decode_panel_id(token: str) -> int:
+    padded = token + "=" * (-len(token) % 4)
+    data = base64.urlsafe_b64decode(padded.encode())
+
+    panel_bytes = data[:-6]
+    sig = data[-6:]
+
+    expected_sig = hmac.new(
+        SECRET_KEY, panel_bytes, hashlib.sha256
+    ).digest()[:6]
+
+    if not hmac.compare_digest(sig, expected_sig):
+        raise ValueError("Invalid token")
+
+    return int(panel_bytes.decode())
+
+@app.get("/panels/{panel_id}/qr")
+def get_panel_qr(panel_id: int, db: Session = Depends(get_db), _=Depends(verify_token)):
+    panel = db.query(PanelMaster).filter_by(panel_id=panel_id).first()
+    if not panel:
+        raise HTTPException(status_code=404, detail="Panel not found")
+
+    encoded_panel = encode_panel_id(panel_id)
+
+    url = f"{WEBAPP_URL}verify-secret-code/{encoded_panel}"
+
+    qr_bytes = generate_qr_code_bytes(url)
+
+    return {
+        "panel_id": panel_id,
+        "qr_code_base64": base64.b64encode(qr_bytes).decode()
+    }
+
+
 # ------------------ RUN ------------------
 # Uncomment below to run directly
 # if __name__ == "__main__":

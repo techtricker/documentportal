@@ -29,6 +29,29 @@ def verify_token(authorization: str = Header(...)):
     except JWTError:
         raise HTTPException(status_code=401, detail="Token is invalid or expired")
     
+
+def verify_token_qr_scan(authorization: str = Header(...)):
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Invalid token format")
+    
+    token = authorization.split(" ")[1]
+
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("panel_id")
+        if username is None:
+            raise HTTPException(status_code=401, detail="Token payload invalid")
+        return payload
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Token is invalid or expired")
+    
+
+def get_panel_id_from_token(token: str) -> str:
+    payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    panel_id = payload.get("panel_id")
+    if not panel_id:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    return panel_id
     
 def create_access_token(data: dict, expires_delta: timedelta = None):
     to_encode = data.copy()
