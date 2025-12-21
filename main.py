@@ -1122,6 +1122,37 @@ def get_panel_qr(panel_id: int, db: Session = Depends(get_db), _=Depends(verify_
     }
 
 
+@app.get("/qr-scan-history")
+def get_qr_scan_history(
+    db: Session = Depends(get_db),
+    str = Depends(verify_token)
+):
+    query = """
+        SELECT *
+        FROM vw_user_assignment_scan_history
+        ORDER BY created_at DESC
+    """
+
+    rows = db.execute(text(query)).mappings().all()
+
+    response = []
+
+    for row in rows:
+        response.append({
+            "user_assignment_id": row["user_assignment_id"],
+            "panel_id": row["panel_id"],
+            "panel_name": row.get("panel_name"),
+            "visitor_name": row.get("visitor_name"),
+            "visitor_email": row.get("visitor_email"),
+            "visitor_phone": row.get("visitor_phone"),
+            "qr_code": row.get("qr_code"),
+            "is_temporary": row.get("is_temporary"),
+            "created_at": row["created_at"],
+            "scan_logs": row["scan_logs"]  # JSON array []
+        })
+
+    return response
+
 # ------------------ RUN ------------------
 # Uncomment below to run directly
 # if __name__ == "__main__":
